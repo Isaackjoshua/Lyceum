@@ -20,9 +20,26 @@ machine except in calls to Anthropic, billed to your own account.
 | Phase | Scope | State |
 |---|---|---|
 | **0** | Scaffold, secure window, typed IPC, SQLite + migrations, key vault, Settings | ✅ Done |
-| 1 | Curriculum architect, streaming tutor chat, inline notes, per-module PDF | Next |
-| 2 | Quizzes + mastery, FSRS flashcard review, inline visuals, dashboard | Planned |
+| **1** | Curriculum architect, streaming tutor chat, inline notes, per-module PDF | ✅ Done |
+| 2 | Quizzes + mastery, FSRS flashcard review, inline visuals, dashboard | Next |
 | 3 | Sandboxed widgets, context summarization, cost caps, backup/restore | Planned |
+
+### What works today
+
+- **Build a curriculum.** Give a subject and a goal. The architect asks one
+  calibrating question, then drafts a syllabus. Every module, objective and
+  estimate is editable — and reorderable — before anything is saved.
+- **Get taught.** Open a module and the tutor diagnoses before it teaches, moves
+  one step per turn, and holds the line when you ask it to just give you the
+  answer. Replies stream, with markdown, KaTeX maths and highlighted code.
+- **Track progress.** Tick objectives yourself, or let the tutor mark one met
+  when you actually demonstrate it. Module status and progress bars follow.
+- **Capture notes inline.** Select any passage in a tutor reply and save it as a
+  typed, tagged note — type and title are guessed from the text. Notes live in a
+  side drawer with search and per-type filters.
+- **Export a study guide.** Any module exports to a typeset PDF: a Claude-written
+  summary, your objectives with their status, and your own notes. Cover page,
+  contents, page numbers, real KaTeX maths. Works offline apart from the summary.
 
 ---
 

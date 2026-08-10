@@ -1,10 +1,10 @@
-import { contextBridge, ipcRenderer } from 'electron'
-import type { LyceumApi } from '@shared/types.js'
+import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
+import type { LyceumApi, TurnEvent } from '@shared/types.js'
 import { IPC } from '@shared/types.js'
 
 /**
  * The preload bridge. contextIsolation is ON, so the renderer only ever sees
- * the frozen object below — no ipcRenderer, no Node, no way to name a channel
+ * the object below — no ipcRenderer, no Node, and no way to name a channel
  * that is not on this whitelist.
  */
 
@@ -27,6 +27,46 @@ const api: LyceumApi = {
   },
   app: {
     versions: () => invoke(IPC.appVersions)
+  },
+  curriculum: {
+    architectTurn: (messages, requestId) =>
+      invoke(IPC.curriculumArchitectTurn, messages, requestId),
+    save: (proposal) => invoke(IPC.curriculumSave, proposal),
+    list: () => invoke(IPC.curriculumList),
+    get: (curriculumId) => invoke(IPC.curriculumGet, curriculumId),
+    delete: (curriculumId) => invoke(IPC.curriculumDelete, curriculumId)
+  },
+  module: {
+    setStatus: (moduleId, status) => invoke(IPC.moduleSetStatus, moduleId, status)
+  },
+  objective: {
+    setStatus: (objectiveId, status) =>
+      invoke(IPC.objectiveSetStatus, objectiveId, status)
+  },
+  session: {
+    start: (moduleId) => invoke(IPC.sessionStart, moduleId),
+    get: (sessionId) => invoke(IPC.sessionGet, sessionId),
+    send: (args) => invoke(IPC.sessionSend, args),
+    cancel: (requestId) => invoke(IPC.sessionCancel, requestId),
+    onEvent: (listener) => {
+      // The IpcRendererEvent is deliberately not forwarded: it carries a
+      // sender reference the renderer has no business holding.
+      const handler = (_event: IpcRendererEvent, payload: TurnEvent): void =>
+        listener(payload)
+      ipcRenderer.on(IPC.streamEvent, handler)
+      return () => {
+        ipcRenderer.removeListener(IPC.streamEvent, handler)
+      }
+    }
+  },
+  notes: {
+    create: (args) => invoke(IPC.notesCreate, args),
+    list: (filter) => invoke(IPC.notesList, filter),
+    update: (noteId, patch) => invoke(IPC.notesUpdate, noteId, patch),
+    delete: (noteId) => invoke(IPC.notesDelete, noteId)
+  },
+  exports: {
+    modulePdf: (moduleId) => invoke(IPC.exportModulePdf, moduleId)
   }
 }
 

@@ -126,15 +126,15 @@ better-sqlite3 is compiled for Electron's ABI and cannot be loaded by a plain
 | `toolRegistry.ts` | Tool definitions plus their main-process executors. |
 | `modes.ts` | Five operating modes, each a system prompt + allowed tools + model. |
 
-*(Phase 0 implements `anthropicClient.ts` only — client construction, error
-mapping, and the connection test. The rest lands in Phase 1.)*
+`prompts/` holds the system prompts themselves — `tutor.ts` is the pedagogy and
+is the single most product-defining file in the repo.
 
 ### Modes
 
 | Mode | Purpose | Default model | Tools |
 |---|---|---|---|
 | Curriculum architect | Topic + brief diagnostic → structured curriculum | Sonnet | `propose_curriculum` |
-| Tutor | The main teaching loop | Sonnet (configurable) | `mark_objective`, `suggest_note`, `render_visual`, `propose_quiz` |
+| Tutor | The main teaching loop | Sonnet (configurable) | `mark_objective` (Phase 1); `suggest_note`, `render_visual`, `propose_quiz` gated until Phase 2 |
 | Assessor | Generate a checkpoint quiz | Sonnet | `generate_quiz` |
 | Card smith | Notes → flashcards | Haiku | `generate_flashcards` |
 | Summarizer | Module summaries + `state_summary` | Haiku | — |
@@ -153,7 +153,45 @@ learner can bump the tutor to Opus for hard subjects.
 6. Transcript and state changes are written to SQLite.
 
 Streaming events (main → renderer): `text_delta`, `tool_start`, `tool_result`,
-`usage`, `done`, `error`.
+`usage`, `done`, `error`. Every event carries the `requestId` of the turn that
+produced it, so a late event from a cancelled turn is discarded rather than
+appended to the transcript.
+
+**Tools are gated on the UI that renders them.** `suggest_note`, `render_visual`
+and `propose_quiz` are fully implemented in `toolRegistry.ts` but excluded from
+`MODES.tutor.tools` until Phase 2 ships their interfaces. Offering the model a
+tool whose result the app would silently drop makes the tutor look broken.
+
+**Ordering is chosen for prompt caching.** The system prompt is two blocks: the
+frozen pedagogy (identical across every turn of every session, and marked
+`cache_control: ephemeral`) followed by the volatile per-turn context block.
+
+**Per-model request tuning is gated on capability flags.** `output_config.effort`
+and `thinking: {type: 'adaptive'}` are rejected outright by models that predate
+them, so `config/models.ts` carries `supportsEffort` / `supportsAdaptiveThinking`
+and `tuningFor()` only sends what the selected model accepts. Sampling parameters
+(`temperature`, `top_p`, `top_k`) are never sent — current models reject them.
+
+### Context budget
+
+`planBudget` keeps the most recent turns verbatim and folds the rest into the
+session's `state_summary` via the cheap model. Two rules matter: the fold runs
+*after* the turn has been delivered, so the learner never waits on background
+bookkeeping; and `minKeep` recent messages survive even when they exceed the
+budget, because dropping the immediate exchange would break the conversation.
+
+### PDF export
+
+Markdown is rendered to HTML in main (`marked`), maths is pre-rendered with
+KaTeX, and the KaTeX stylesheet and its fonts are inlined as data URIs. The
+resulting document is fully self-contained, so the hidden print window runs with
+`javascript: false` and fetches nothing.
+
+> A subtle trap worth recording: KaTeX's CSS references its families by their
+> underscored names (`font-family: KaTeX_Main`). An earlier version of the
+> inliner rewrote the underscore to a space while generating `@font-face` rules,
+> which matched nothing and silently fell back to a serif — maths rendered, but
+> with wrong glyphs. The family name must be passed through verbatim.
 
 ---
 
@@ -183,11 +221,24 @@ suffix; a test asserts this, because a suffixed ID would 404.
 
 - `tests/migrations.test.ts` — schema shape, indices, cascade deletes, CHECK
   constraint enforcement, version bookkeeping.
-- `tests/validate.test.ts` — IPC input validation and the model catalog,
-  including cost arithmetic and the no-date-suffix rule.
+- `tests/validate.test.ts` — IPC input validation (settings, curriculum
+  proposals, notes, architect transcripts) and the model catalog, including cost
+  arithmetic and the no-date-suffix rule.
+- `tests/harness.test.ts` — context budgeting, the context block's contents, and
+  coercion of the model's `propose_curriculum` output.
+- `tests/pdf.test.ts` — markdown/maths rendering, code-fence protection against
+  the maths regex, HTML escaping, and self-containment of the print document.
 
-The key vault was verified against the real OS keychain during Phase 0
-acceptance: ciphertext at rest with no plaintext substring, a successful
-decrypt round-trip, status payloads that never carry the key, and a clean
-delete. That check needs a live Electron runtime, so it is not part of the
-`npm test` suite.
+Two things need a live Electron runtime and so sit outside `npm test`; both were
+run as throwaway harnesses at their phase's acceptance:
+
+- **Phase 0, key vault** against the real OS keychain — ciphertext at rest with
+  no plaintext substring, decrypt round-trip, status payloads that never carry
+  the key, clean delete.
+- **Phase 1, persistence and print** — curriculum/objective/session/note round
+  trips through better-sqlite3, and `printToPDF` producing a real PDF with the
+  KaTeX font subsets actually embedded (verified via `/BaseFont` entries, which
+  is what caught the font-family bug above).
+
+The live teaching loop itself — streaming, the tool loop, the architect's
+diagnostic — requires a funded API key and is exercised manually.

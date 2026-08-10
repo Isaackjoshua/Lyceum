@@ -3,7 +3,10 @@ import { HashRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { LayoutDashboard, Layers } from 'lucide-react'
 import { AppShell } from '@/components/AppShell'
 import { CurriculaRoute } from '@/routes/Curricula'
+import { CurriculumDetailRoute } from '@/routes/CurriculumDetail'
+import { NewCurriculumRoute } from '@/routes/NewCurriculum'
 import { Placeholder } from '@/routes/Placeholder'
+import { SessionRoute } from '@/routes/Session'
 import { SettingsRoute } from '@/routes/Settings'
 import { applyAppearance, useSettingsStore } from '@/stores/settingsStore'
 
@@ -47,6 +50,9 @@ export function App(): JSX.Element {
       <AppShell>
         <Routes>
           <Route path="/" element={<CurriculaRoute />} />
+          <Route path="/new" element={<NewCurriculumRoute />} />
+          <Route path="/curriculum/:id" element={<CurriculumDetailRoute />} />
+          <Route path="/module/:moduleId" element={<SessionRoute />} />
           <Route
             path="/review"
             element={

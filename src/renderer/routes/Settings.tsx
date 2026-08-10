@@ -88,7 +88,8 @@ export function SettingsRoute(): JSX.Element {
   const encryptionUnavailable = keyStatus !== null && !keyStatus.encryptionAvailable
 
   return (
-    <div className="mx-auto max-w-3xl px-8 py-10">
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-3xl px-8 py-10">
       <header className="mb-8">
         <h1 className="font-serif text-2xl font-semibold tracking-tight">Settings</h1>
         <p className="mt-1 text-sm text-muted-foreground">
@@ -371,6 +372,7 @@ export function SettingsRoute(): JSX.Element {
           )}
         </CardContent>
       </Card>
+      </div>
     </div>
   )
 }

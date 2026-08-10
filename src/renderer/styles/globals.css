@@ -87,3 +87,67 @@
     -webkit-app-region: no-drag;
   }
 }
+
+/* ------------------------------------------------------------------ *
+ * Tutor prose. Hand-rolled rather than @tailwindcss/typography so the *
+ * rhythm matches the app shell and dark mode needs no overrides.      *
+ * ------------------------------------------------------------------ */
+@layer components {
+  .lyceum-prose {
+    @apply text-[0.95rem] leading-[1.7] text-foreground;
+  }
+  .lyceum-prose > *:first-child { @apply mt-0; }
+  .lyceum-prose > *:last-child { @apply mb-0; }
+
+  .lyceum-prose p { @apply my-3; }
+  .lyceum-prose h1 { @apply mb-2 mt-5 font-serif text-lg font-semibold; }
+  .lyceum-prose h2 { @apply mb-2 mt-5 font-serif text-base font-semibold; }
+  .lyceum-prose h3 { @apply mb-1.5 mt-4 text-[0.95rem] font-semibold; }
+  .lyceum-prose ul { @apply my-3 list-disc space-y-1 pl-5; }
+  .lyceum-prose ol { @apply my-3 list-decimal space-y-1 pl-5; }
+  .lyceum-prose li { @apply pl-0.5; }
+  .lyceum-prose li > p { @apply my-0; }
+  .lyceum-prose strong { @apply font-semibold; }
+  .lyceum-prose blockquote {
+    @apply my-3 border-l-2 border-accent/40 pl-4 italic text-muted-foreground;
+  }
+  .lyceum-prose hr { @apply my-5 border-border; }
+
+  .lyceum-prose code {
+    @apply rounded bg-secondary px-1 py-0.5 font-mono text-[0.85em];
+  }
+  .lyceum-prose pre {
+    @apply my-3 overflow-x-auto rounded-md border bg-secondary/60 p-3;
+  }
+  .lyceum-prose pre code {
+    @apply block bg-transparent p-0 text-[0.83rem] leading-relaxed;
+  }
+
+  .lyceum-prose table {
+    @apply my-3 w-full border-collapse text-[0.9em];
+  }
+  .lyceum-prose th,
+  .lyceum-prose td { @apply border border-border px-2.5 py-1.5 text-left; }
+  .lyceum-prose th { @apply bg-secondary font-semibold; }
+
+  /* KaTeX display blocks scroll rather than widening the transcript. */
+  .lyceum-prose .katex-display {
+    @apply my-4 overflow-x-auto overflow-y-hidden py-1;
+  }
+  .lyceum-prose .katex { @apply text-[1.02em]; }
+}
+
+/* highlight.js ships light-theme colours; soften them for dark mode. */
+.dark .hljs { color: hsl(var(--foreground)); background: transparent; }
+.dark .hljs-comment,
+.dark .hljs-quote { color: hsl(var(--muted-foreground)); }
+.dark .hljs-keyword,
+.dark .hljs-selector-tag,
+.dark .hljs-literal { color: #d8a0dc; }
+.dark .hljs-string,
+.dark .hljs-doctag { color: #a3c99a; }
+.dark .hljs-number,
+.dark .hljs-built_in { color: #e0b080; }
+.dark .hljs-title,
+.dark .hljs-section,
+.dark .hljs-attr { color: #8ab4d8; }

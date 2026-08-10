@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { sanitiseSettingsPatch } from '../src/main/ipc/validate.js'
+import {
+  sanitiseArchitectMessages,
+  sanitiseCurriculumProposal,
+  sanitiseNoteArgs,
+  sanitiseSettingsPatch
+} from '../src/main/ipc/validate.js'
 import { estimateCost, MODELS, TUTOR_MODEL_CHOICES } from '../config/models.js'
 
 describe('sanitiseSettingsPatch', () => {
@@ -84,5 +89,114 @@ describe('model catalog', () => {
 
   it('returns zero for an unknown model rather than throwing', () => {
     expect(estimateCost('nonexistent', 1_000_000, 1_000_000)).toBe(0)
+  })
+})
+
+describe('sanitiseCurriculumProposal', () => {
+  const valid = {
+    title: 'Backprop',
+    subject: 'ML',
+    goal: 'Implement it',
+    learnerLevel: 'intermediate',
+    modules: [{ title: 'Chain rule', objectives: ['State it'], estMinutes: 45 }]
+  }
+
+  it('accepts a well-formed proposal', () => {
+    const result = sanitiseCurriculumProposal(valid)
+    expect(result.title).toBe('Backprop')
+    expect(result.modules).toHaveLength(1)
+    expect(result.modules[0]!.estMinutes).toBe(45)
+  })
+
+  it('requires a title and at least one module', () => {
+    expect(() => sanitiseCurriculumProposal({ ...valid, title: '  ' })).toThrow(/title/i)
+    expect(() => sanitiseCurriculumProposal({ ...valid, modules: [] })).toThrow(/module/i)
+  })
+
+  it('rejects an unknown learner level', () => {
+    expect(() => sanitiseCurriculumProposal({ ...valid, learnerLevel: 'guru' })).toThrow(
+      /learner level/i
+    )
+  })
+
+  it('rejects a module with no title', () => {
+    expect(() =>
+      sanitiseCurriculumProposal({ ...valid, modules: [{ title: '', objectives: [] }] })
+    ).toThrow(/needs a title/i)
+  })
+
+  it('caps module and objective counts', () => {
+    const many = Array.from({ length: 100 }, () => ({ title: 'M', objectives: [] }))
+    expect(() => sanitiseCurriculumProposal({ ...valid, modules: many })).toThrow(
+      /too many modules/i
+    )
+
+    const objectives = Array.from({ length: 50 }, () => 'o')
+    expect(() =>
+      sanitiseCurriculumProposal({ ...valid, modules: [{ title: 'M', objectives }] })
+    ).toThrow(/too many objectives/i)
+  })
+
+  it('falls back to the title when subject and goal are missing', () => {
+    const result = sanitiseCurriculumProposal({
+      title: 'Only a title',
+      learnerLevel: 'novice',
+      modules: [{ title: 'M', objectives: [] }]
+    })
+    expect(result.subject).toBe('Only a title')
+    expect(result.goal).toBe('Only a title')
+  })
+})
+
+describe('sanitiseNoteArgs', () => {
+  const valid = { type: 'concept', title: 'Chain rule', content: 'd/dx f(g(x))' }
+
+  it('accepts a minimal note', () => {
+    const note = sanitiseNoteArgs(valid)
+    expect(note.type).toBe('concept')
+    expect(note.moduleId).toBeNull()
+    expect(note.tags).toEqual([])
+  })
+
+  it('rejects an unknown type', () => {
+    expect(() => sanitiseNoteArgs({ ...valid, type: 'vibes' })).toThrow(/note type/i)
+  })
+
+  it('requires a title and content', () => {
+    expect(() => sanitiseNoteArgs({ ...valid, title: '   ' })).toThrow(/title/i)
+    expect(() => sanitiseNoteArgs({ ...valid, content: '' })).toThrow(/content/i)
+  })
+
+  it('rejects content beyond the cap', () => {
+    expect(() => sanitiseNoteArgs({ ...valid, content: 'x'.repeat(60_000) })).toThrow(
+      /too long/i
+    )
+  })
+
+  it('caps the tag count', () => {
+    const tags = Array.from({ length: 50 }, (_, i) => `t${i}`)
+    expect(() => sanitiseNoteArgs({ ...valid, tags })).toThrow(/too many tags/i)
+  })
+})
+
+describe('sanitiseArchitectMessages', () => {
+  it('accepts a valid exchange', () => {
+    const messages = sanitiseArchitectMessages([
+      { role: 'user', content: 'teach me' },
+      { role: 'assistant', content: 'what do you know?' }
+    ])
+    expect(messages).toHaveLength(2)
+  })
+
+  it('rejects an empty list and an unknown role', () => {
+    expect(() => sanitiseArchitectMessages([])).toThrow(/empty/i)
+    expect(() => sanitiseArchitectMessages([{ role: 'system', content: 'x' }])).toThrow(
+      /role/i
+    )
+  })
+
+  it('rejects a runaway conversation', () => {
+    const many = Array.from({ length: 200 }, () => ({ role: 'user', content: 'x' }))
+    expect(() => sanitiseArchitectMessages(many)).toThrow(/too long/i)
   })
 })

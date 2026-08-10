@@ -200,6 +200,135 @@ export interface UsageTotals {
   estimatedUsd: number
 }
 
+/* ------------------------------------------------------------------ *
+ * Curriculum architect                                                *
+ * ------------------------------------------------------------------ */
+
+/** A curriculum the architect proposed but the learner has not saved yet. */
+export interface ProposedModule {
+  title: string
+  summary?: string
+  estMinutes?: number
+  objectives: string[]
+}
+
+export interface CurriculumProposal {
+  title: string
+  subject: string
+  goal: string
+  learnerLevel: LearnerLevel
+  modules: ProposedModule[]
+}
+
+/** One turn of the pre-save diagnostic conversation. */
+export interface ArchitectMessage {
+  role: 'user' | 'assistant'
+  content: string
+}
+
+export interface ArchitectTurnResult {
+  /** The architect's prose for this turn (its calibrating question, usually). */
+  text: string
+  /** Present once it has enough to draft a syllabus. */
+  proposal: CurriculumProposal | null
+}
+
+/** A curriculum with its modules and objectives, for the tree view. */
+export interface CurriculumDetail extends Curriculum {
+  modules: (Module & { objectives: Objective[] })[]
+}
+
+export interface CurriculumSummary extends Curriculum {
+  moduleCount: number
+  completedModules: number
+  noteCount: number
+}
+
+/* ------------------------------------------------------------------ *
+ * Tutor session streaming                                             *
+ * ------------------------------------------------------------------ */
+
+/** A visual the tutor asked to render inline. */
+export interface VisualPayload {
+  format: 'svg' | 'mermaid' | 'html'
+  code: string
+  caption?: string
+}
+
+/** A note the tutor proactively offered to save. */
+export interface NoteSuggestion {
+  type: NoteType
+  title: string
+  content: string
+  sourceExcerpt?: string
+}
+
+/**
+ * Events streamed from main to the renderer during a turn. Every event carries
+ * the requestId of the turn that produced it, so a late event from an
+ * abandoned turn can be ignored.
+ */
+export type TurnEvent =
+  | { type: 'text_delta'; requestId: string; delta: string }
+  | { type: 'tool_start'; requestId: string; tool: string }
+  | {
+      type: 'tool_result'
+      requestId: string
+      tool: string
+      /** Renderer hint — what to draw as a result of this tool call. */
+      hint:
+        | { kind: 'objective_met'; objectiveId: number; evidence: string }
+        | { kind: 'note_suggested'; suggestion: NoteSuggestion }
+        | { kind: 'visual'; visual: VisualPayload }
+        | { kind: 'quiz_proposed'; moduleId: number; focus: string | null }
+    }
+  | { type: 'usage'; requestId: string; inputTokens: number; outputTokens: number; estimatedUsd: number }
+  | { type: 'done'; requestId: string; messageId: number }
+  | { type: 'error'; requestId: string; message: string }
+
+export interface SessionDetail {
+  session: Session
+  module: Module & { objectives: Objective[] }
+  curriculum: Curriculum
+  messages: Message[]
+}
+
+export interface SendMessageArgs {
+  sessionId: number
+  text: string
+  requestId: string
+}
+
+/* ------------------------------------------------------------------ *
+ * Notes                                                               *
+ * ------------------------------------------------------------------ */
+
+export interface CreateNoteArgs {
+  curriculumId?: number | null
+  moduleId?: number | null
+  sessionId?: number | null
+  messageId?: number | null
+  type: NoteType
+  title: string
+  content: string
+  annotation?: string | null
+  sourceExcerpt?: string | null
+  tags?: string[]
+}
+
+export interface NoteFilter {
+  curriculumId?: number | null
+  moduleId?: number | null
+  type?: NoteType | null
+  search?: string | null
+}
+
+export interface ExportResult {
+  /** False when the learner dismissed the save dialog. */
+  saved: boolean
+  path: string | null
+}
+
 /** Channel names. Anything not listed here is rejected by the preload bridge. */
 export const IPC = {
   keyGetStatus: 'key:getStatus',
@@ -212,7 +341,31 @@ export const IPC = {
 
   dbInfo: 'db:info',
 
-  appVersions: 'app:versions'
+  appVersions: 'app:versions',
+
+  curriculumArchitectTurn: 'curriculum:architectTurn',
+  curriculumSave: 'curriculum:save',
+  curriculumList: 'curriculum:list',
+  curriculumGet: 'curriculum:get',
+  curriculumDelete: 'curriculum:delete',
+
+  moduleSetStatus: 'module:setStatus',
+  objectiveSetStatus: 'objective:setStatus',
+
+  sessionStart: 'session:start',
+  sessionGet: 'session:get',
+  sessionSend: 'session:send',
+  sessionCancel: 'session:cancel',
+
+  notesCreate: 'notes:create',
+  notesList: 'notes:list',
+  notesUpdate: 'notes:update',
+  notesDelete: 'notes:delete',
+
+  exportModulePdf: 'export:modulePdf',
+
+  /** main -> renderer, one-way. */
+  streamEvent: 'stream:event'
 } as const
 
 export type IpcChannel = (typeof IPC)[keyof typeof IPC]
@@ -252,5 +405,41 @@ export interface LyceumApi {
   }
   app: {
     versions: () => Promise<IpcResult<AppVersions>>
+  }
+  curriculum: {
+    architectTurn: (
+      messages: ArchitectMessage[],
+      requestId: string
+    ) => Promise<IpcResult<ArchitectTurnResult>>
+    save: (proposal: CurriculumProposal) => Promise<IpcResult<CurriculumDetail>>
+    list: () => Promise<IpcResult<CurriculumSummary[]>>
+    get: (curriculumId: number) => Promise<IpcResult<CurriculumDetail>>
+    delete: (curriculumId: number) => Promise<IpcResult<null>>
+  }
+  module: {
+    setStatus: (moduleId: number, status: ModuleStatus) => Promise<IpcResult<Module>>
+  }
+  objective: {
+    setStatus: (
+      objectiveId: number,
+      status: ObjectiveStatus
+    ) => Promise<IpcResult<Objective>>
+  }
+  session: {
+    start: (moduleId: number) => Promise<IpcResult<SessionDetail>>
+    get: (sessionId: number) => Promise<IpcResult<SessionDetail>>
+    send: (args: SendMessageArgs) => Promise<IpcResult<null>>
+    cancel: (requestId: string) => Promise<IpcResult<null>>
+    /** Subscribes to streamed turn events. Returns an unsubscribe function. */
+    onEvent: (listener: (event: TurnEvent) => void) => () => void
+  }
+  notes: {
+    create: (args: CreateNoteArgs) => Promise<IpcResult<Note>>
+    list: (filter: NoteFilter) => Promise<IpcResult<Note[]>>
+    update: (noteId: number, patch: Partial<CreateNoteArgs>) => Promise<IpcResult<Note>>
+    delete: (noteId: number) => Promise<IpcResult<null>>
+  }
+  exports: {
+    modulePdf: (moduleId: number) => Promise<IpcResult<ExportResult>>
   }
 }

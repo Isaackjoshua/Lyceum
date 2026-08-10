@@ -25,6 +25,13 @@ export interface ModelInfo {
   inputPer1M: number
   /** USD per 1M output tokens. */
   outputPer1M: number
+  /**
+   * Whether `output_config.effort` is accepted. Sending it to a model that
+   * does not support it is a 400, so this gates the parameter.
+   */
+  supportsEffort: boolean
+  /** Whether `thinking: { type: 'adaptive' }` is accepted. */
+  supportsAdaptiveThinking: boolean
   /** Short note shown in Settings. */
   note: string
 }
@@ -37,6 +44,8 @@ export const MODELS: Record<ModelId, ModelInfo> = {
     maxOutput: 128_000,
     inputPer1M: 5,
     outputPer1M: 25,
+    supportsEffort: true,
+    supportsAdaptiveThinking: true,
     note: 'Most capable. Best for hard subjects — proofs, deep theory, dense math.'
   },
   'claude-opus-4-8': {
@@ -46,6 +55,8 @@ export const MODELS: Record<ModelId, ModelInfo> = {
     maxOutput: 128_000,
     inputPer1M: 5,
     outputPer1M: 25,
+    supportsEffort: true,
+    supportsAdaptiveThinking: true,
     note: 'Previous-generation Opus. Same price as Opus 5.'
   },
   'claude-sonnet-5': {
@@ -56,6 +67,8 @@ export const MODELS: Record<ModelId, ModelInfo> = {
     // $2/$10 introductory pricing runs through 2026-08-31; standard is $3/$15.
     inputPer1M: 3,
     outputPer1M: 15,
+    supportsEffort: true,
+    supportsAdaptiveThinking: true,
     note: 'Balanced default. Near-Opus quality on tutoring at lower cost.'
   },
   'claude-haiku-4-5': {
@@ -65,6 +78,9 @@ export const MODELS: Record<ModelId, ModelInfo> = {
     maxOutput: 64_000,
     inputPer1M: 1,
     outputPer1M: 5,
+    // Haiku 4.5 predates the effort parameter and rejects it.
+    supportsEffort: false,
+    supportsAdaptiveThinking: false,
     note: 'Fast and cheap. Used for background work: flashcards and summaries.'
   }
 }
@@ -91,7 +107,11 @@ export const DEFAULT_MODELS = {
   summarizer: 'claude-haiku-4-5' as ModelId
 }
 
-export const DEFAULT_MAX_TOKENS = 4096
+/**
+ * Max output tokens per tutor reply. This caps thinking AND response text
+ * together, so leave headroom above what the prose alone needs.
+ */
+export const DEFAULT_MAX_TOKENS = 8192
 
 /** Estimated USD cost for a given token usage on a given model. */
 export function estimateCost(
