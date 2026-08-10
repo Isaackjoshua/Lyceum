@@ -1,0 +1,89 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 40 20% 98%;
+    --foreground: 25 15% 12%;
+    --card: 0 0% 100%;
+    --card-foreground: 25 15% 12%;
+    --primary: 25 45% 32%;
+    --primary-foreground: 40 30% 98%;
+    --secondary: 35 20% 93%;
+    --secondary-foreground: 25 15% 20%;
+    --muted: 35 18% 94%;
+    --muted-foreground: 25 8% 45%;
+    --accent: 24 60% 48%;
+    --accent-foreground: 40 30% 98%;
+    --destructive: 0 65% 48%;
+    --destructive-foreground: 0 0% 100%;
+    --success: 152 45% 34%;
+    --success-foreground: 0 0% 100%;
+    --border: 30 12% 87%;
+    --input: 30 12% 87%;
+    --ring: 24 60% 48%;
+    --radius: 0.6rem;
+  }
+
+  .dark {
+    --background: 240 6% 7%;
+    --foreground: 40 12% 92%;
+    --card: 240 5% 10%;
+    --card-foreground: 40 12% 92%;
+    --primary: 30 40% 66%;
+    --primary-foreground: 240 8% 10%;
+    --secondary: 240 5% 15%;
+    --secondary-foreground: 40 12% 92%;
+    --muted: 240 5% 15%;
+    --muted-foreground: 35 8% 62%;
+    --accent: 24 62% 55%;
+    --accent-foreground: 240 8% 8%;
+    --destructive: 0 62% 52%;
+    --destructive-foreground: 0 0% 100%;
+    --success: 152 40% 46%;
+    --success-foreground: 240 8% 8%;
+    --border: 240 5% 20%;
+    --input: 240 5% 20%;
+    --ring: 24 62% 55%;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-synthesis-weight: none;
+    text-rendering: optimizeLegibility;
+    overflow: hidden;
+  }
+
+  /* Keyboard users always get a visible focus ring. */
+  :focus-visible {
+    @apply outline-none ring-2 ring-ring ring-offset-2 ring-offset-background;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply rounded-full bg-border;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}
+
+@layer utilities {
+  .no-drag {
+    -webkit-app-region: no-drag;
+  }
+}
