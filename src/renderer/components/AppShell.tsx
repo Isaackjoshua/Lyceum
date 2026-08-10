@@ -26,11 +26,12 @@ const linkClass = ({ isActive }: { isActive: boolean }): string =>
   )
 
 export function AppShell({ children }: { children: ReactNode }): JSX.Element {
-  const keyStatus = useSettingsStore((s) => s.keyStatus)
+  // Readiness now means: the provider behind the chosen tutor model is usable.
+  const settings = useSettingsStore((s) => s.settings)
   const { list, refresh } = useCurriculumStore()
   const location = useLocation()
 
-  const needsKey = keyStatus !== null && !keyStatus.present
+  const needsKey = settings !== null && !settings.keyPresent
   const onSettings = location.pathname === '/settings'
 
   useEffect(() => {
@@ -118,8 +119,8 @@ export function AppShell({ children }: { children: ReactNode }): JSX.Element {
               to="/settings"
               className="block rounded-md border border-accent/40 bg-accent/10 p-3 text-xs leading-relaxed text-foreground hover:bg-accent/15"
             >
-              <span className="font-medium">No API key yet.</span> Add your Anthropic key
-              in Settings to start learning.
+              <span className="font-medium">No model configured.</span> Pick a
+              provider and add its key in Settings to start learning.
             </NavLink>
           )}
         </div>

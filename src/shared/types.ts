@@ -159,10 +159,21 @@ export interface AppEvent {
 
 export type ThemePreference = 'light' | 'dark' | 'system'
 
+/** Learner-supplied configuration for one provider. */
+export interface ProviderConfig {
+  /** Overrides the provider's default endpoint. Empty = use the default. */
+  baseUrl: string
+  /** Model ids the learner typed themselves (aggregators, local runtimes). */
+  customModels: string[]
+}
+
 export interface Settings {
+  /** `provider:model` for the live tutoring loop. */
   tutorModel: string
+  /** `provider:model` for summaries, flashcards and grading. */
+  backgroundModel: string
   maxTokens: number
-  /** Reasoning effort for the tutor. Maps to output_config.effort. */
+  /** Reasoning effort. Only sent to models that accept it. */
   effort: 'low' | 'medium' | 'high'
   theme: ThemePreference
   /** Renderer root font size in px. */
@@ -171,8 +182,10 @@ export interface Settings {
   spendCapUsd: number
   /** Block generation once the cap is reached (vs. warn only). */
   spendCapBlocks: boolean
-  /** True when an API key is present in the vault. Never the key itself. */
+  /** True when the selected tutor model's provider is usable. */
   keyPresent: boolean
+  /** Base URLs and custom model ids, keyed by provider id. */
+  providers: Record<string, ProviderConfig>
 }
 
 /* ------------------------------------------------------------------ *
@@ -183,7 +196,11 @@ export interface Settings {
 export type IpcResult<T> = { ok: true; data: T } | { ok: false; error: string }
 
 export interface KeyStatus {
+  provider: string
+  /** True when a key is stored, or when the provider needs none. */
   present: boolean
+  /** False for providers that need no key at all (a local runtime). */
+  required: boolean
   /** OS-level encryption availability. False = we refuse to store the key. */
   encryptionAvailable: boolean
   /** Last four characters, for recognition only. Never the full key. */
@@ -466,12 +483,50 @@ export interface DashboardStats {
   spendThisMonthUsd: number
 }
 
+/** A model offered in the picker. */
+export interface CatalogModel {
+  /** `provider:model`. */
+  ref: string
+  provider: string
+  id: string
+  label: string
+  inputPer1M: number
+  outputPer1M: number
+  supportsTools: boolean
+  background: boolean
+  note: string
+  /** True when the learner typed this id rather than it being a preset. */
+  custom: boolean
+}
+
+export interface CatalogProvider {
+  id: string
+  label: string
+  kind: string
+  defaultBaseUrl: string | null
+  baseUrlEditable: boolean
+  needsKey: boolean
+  keyPrefix: string | null
+  consoleUrl: string | null
+  allowsCustomModels: boolean
+  blurb: string
+  config: ProviderConfig
+  models: CatalogModel[]
+}
+
+export interface ProviderCatalog {
+  providers: CatalogProvider[]
+}
+
 /** Channel names. Anything not listed here is rejected by the preload bridge. */
 export const IPC = {
   keyGetStatus: 'key:getStatus',
   keySet: 'key:set',
   keyClear: 'key:clear',
   keyTest: 'key:test',
+
+  providersList: 'providers:list',
+  providerConfigSet: 'providers:setConfig',
 
   settingsGet: 'settings:get',
   settingsUpdate: 'settings:update',
@@ -551,10 +606,18 @@ export interface AppVersions {
 
 export interface LyceumApi {
   key: {
-    getStatus: () => Promise<IpcResult<KeyStatus>>
-    set: (apiKey: string) => Promise<IpcResult<KeyStatus>>
-    clear: () => Promise<IpcResult<KeyStatus>>
-    test: () => Promise<IpcResult<TestConnectionResult>>
+    getStatus: () => Promise<IpcResult<KeyStatus[]>>
+    set: (provider: string, apiKey: string) => Promise<IpcResult<KeyStatus[]>>
+    clear: (provider: string) => Promise<IpcResult<KeyStatus[]>>
+    /** Live check against a specific `provider:model`. */
+    test: (modelRef: string) => Promise<IpcResult<TestConnectionResult>>
+  }
+  providers: {
+    list: () => Promise<IpcResult<ProviderCatalog>>
+    setConfig: (
+      provider: string,
+      patch: Partial<ProviderConfig>
+    ) => Promise<IpcResult<ProviderConfig>>
   }
   settings: {
     get: () => Promise<IpcResult<Settings>>

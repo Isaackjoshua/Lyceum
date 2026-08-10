@@ -18,6 +18,8 @@ import type {
   ReviewPreview,
   BackupResult,
   RestoreResult,
+  ProviderCatalog,
+  ProviderConfig,
   ReviewQueue,
   SessionDetail,
   SpendStatus,
@@ -27,6 +29,7 @@ import type {
   TurnEvent
 } from '@shared/types.js'
 import { IPC } from '@shared/types.js'
+import { parseModelRef } from '@config/models.js'
 import { getDatabase, getDatabasePath, getSchemaVersion } from '../db/index.js'
 import {
   deleteCurriculum,
@@ -38,9 +41,20 @@ import {
   setObjectiveStatus
 } from '../db/queries/curriculum.js'
 import { createNote, deleteNote, listNotes, updateNote } from '../db/queries/notes.js'
-import { readSettings, writeSettings } from '../db/queries/settings.js'
-import { clearApiKey, getKeyStatus, hasApiKey, setApiKey } from '../security/keyVault.js'
-import { describeApiError, testConnection } from '../harness/anthropicClient.js'
+import {
+  readAllProviderConfigs,
+  readSettings,
+  writeProviderConfig,
+  writeSettings
+} from '../db/queries/settings.js'
+import {
+  allKeyStatuses,
+  clearApiKey,
+  hasApiKey,
+  setApiKey
+} from '../security/keyVault.js'
+import { describeApiError, testConnection } from '../harness/llm.js'
+import { buildProviderCatalog } from '../services/catalog.js'
 import { runArchitectTurn } from '../services/architect.js'
 import { beginSession, loadSessionDetail, runTutorTurn } from '../services/tutor.js'
 import { exportModulePdf } from '../services/exportService.js'
@@ -68,6 +82,7 @@ import {
   sanitiseNoteArgs,
   sanitiseNoteFilter,
   sanitiseNotePatch,
+  sanitiseProviderConfigPatch,
   sanitiseQuizResponses,
   sanitiseSettingsPatch
 } from './validate.js'
@@ -88,7 +103,13 @@ function handle<T>(channel: string, fn: (...args: unknown[]) => Promise<T> | T):
 }
 
 function currentSettings(): Settings {
-  return { ...readSettings(), keyPresent: hasApiKey() }
+  const settings = readSettings()
+  const { provider } = parseModelRef(settings.tutorModel)
+  return {
+    ...settings,
+    keyPresent: hasApiKey(provider),
+    providers: readAllProviderConfigs()
+  }
 }
 
 /** Sends a streamed turn event to a specific renderer. */
@@ -102,10 +123,32 @@ function emitTo(senderId: number, event: TurnEvent): void {
 export function registerIpcHandlers(): void {
   /* ------------------------------------------------------------- key */
 
-  handle<KeyStatus>(IPC.keyGetStatus, () => getKeyStatus())
-  handle<KeyStatus>(IPC.keySet, (apiKey) => setApiKey(requireString(apiKey, 'apiKey')))
-  handle<KeyStatus>(IPC.keyClear, () => clearApiKey())
-  handle<TestConnectionResult>(IPC.keyTest, () => testConnection())
+  handle<KeyStatus[]>(IPC.keyGetStatus, () => allKeyStatuses())
+
+  handle<KeyStatus[]>(IPC.keySet, (provider, apiKey) => {
+    setApiKey(requireString(provider, 'provider'), requireString(apiKey, 'apiKey'))
+    return allKeyStatuses()
+  })
+
+  handle<KeyStatus[]>(IPC.keyClear, (provider) => {
+    clearApiKey(requireString(provider, 'provider'))
+    return allKeyStatuses()
+  })
+
+  handle<TestConnectionResult>(IPC.keyTest, (modelRef) =>
+    testConnection(requireString(modelRef, 'modelRef'))
+  )
+
+  /* ------------------------------------------------------- providers */
+
+  handle<ProviderCatalog>(IPC.providersList, () => buildProviderCatalog())
+
+  handle<ProviderConfig>(IPC.providerConfigSet, (provider, patch) =>
+    writeProviderConfig(
+      requireString(provider, 'provider'),
+      sanitiseProviderConfigPatch(patch)
+    )
+  )
 
   /* -------------------------------------------------------- settings */
 

@@ -3,14 +3,22 @@ import { app, shell, BrowserWindow, session } from 'electron'
 import { electronApp, is, optimizer } from '@electron-toolkit/utils'
 import { closeDatabase, initDatabase } from './db/index.js'
 import { registerIpcHandlers } from './ipc/index.js'
+import { migrateLegacyKey } from './security/keyVault.js'
+
+// Pin the app name before anything reads app.getPath('userData'). Electron
+// otherwise derives it from whichever package.json it finds, so the database
+// would land in a different directory depending on how the app was launched —
+// and a learner's curricula would appear to vanish.
+app.setName('Lyceum')
 
 /**
  * Content Security Policy.
  *
  * Dev needs 'unsafe-inline' for Vite's injected styles and a websocket for HMR;
- * production is locked down. Neither allows remote script. The renderer talks
- * to Anthropic only indirectly, through IPC into the main process, so
- * connect-src does NOT need to include api.anthropic.com.
+ * production is locked down. Neither allows remote script. Every model call is
+ * made by the main process, whichever provider it goes to, so connect-src does
+ * not need to name any provider endpoint — a compromised renderer cannot reach
+ * one directly.
  */
 function contentSecurityPolicy(): string {
   const directives = [
@@ -108,6 +116,7 @@ if (!gotLock) {
     session.defaultSession.setPermissionRequestHandler((_wc, _permission, done) => done(false))
 
     initDatabase()
+    migrateLegacyKey()
     registerIpcHandlers()
 
     app.on('browser-window-created', (_event, window) => {

@@ -14,9 +14,13 @@ const invoke = <T>(channel: string, ...args: unknown[]): Promise<T> =>
 const api: LyceumApi = {
   key: {
     getStatus: () => invoke(IPC.keyGetStatus),
-    set: (apiKey) => invoke(IPC.keySet, apiKey),
-    clear: () => invoke(IPC.keyClear),
-    test: () => invoke(IPC.keyTest)
+    set: (provider, apiKey) => invoke(IPC.keySet, provider, apiKey),
+    clear: (provider) => invoke(IPC.keyClear, provider),
+    test: (modelRef) => invoke(IPC.keyTest, modelRef)
+  },
+  providers: {
+    list: () => invoke(IPC.providersList),
+    setConfig: (provider, patch) => invoke(IPC.providerConfigSet, provider, patch)
   },
   settings: {
     get: () => invoke(IPC.settingsGet),

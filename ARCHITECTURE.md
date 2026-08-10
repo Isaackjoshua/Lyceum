@@ -17,7 +17,7 @@
 │  ┌────────────── Teaching Harness (src/main/harness/) — THE CORE ────────┐  │
 │  │  promptAssembler · contextManager · toolRegistry · anthropicClient    │  │
 │  └───────────────────────────────────────────────────────────────────────┘  │
-│  SQLite (better-sqlite3)  ·  safeStorage key vault  ·  Anthropic API (TLS)  │
+│  SQLite (better-sqlite3) · safeStorage key vault · model providers (TLS)   │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -41,9 +41,9 @@ Owns three things the renderer must never touch:
 2. **The database.** `db/index.ts` opens one SQLite file in `userData`, applies
    pragmas (`WAL`, `foreign_keys = ON`), and runs pending migrations before the
    first window opens.
-3. **Anthropic calls.** All of them originate in `harness/anthropicClient.ts`.
-   The renderer's CSP does not even permit `connect-src` to Anthropic, so a
-   compromised renderer cannot reach the API directly.
+3. **Model calls.** All of them originate in `harness/llm.ts` and its
+   providers. The renderer's CSP permits no outbound origin at all, so a
+   compromised renderer cannot reach any provider directly.
 
 ### Preload (`src/preload/`)
 
@@ -114,13 +114,77 @@ better-sqlite3 is compiled for Electron's ABI and cannot be loaded by a plain
 
 ---
 
+## Providers
+
+Lyceum is not native to any one vendor. `harness/providers/` holds the whole
+vendor-specific surface; everything above it — modes, prompts, context
+assembly, tool execution, the services — works in terms of a `provider:model`
+reference and never learns who answered.
+
+| Module | Responsibility |
+|---|---|
+| `providers/types.ts` | The contract: `runTurn` (streaming + tool loop) and `runSimple`. |
+| `providers/anthropic.ts` | Claude, via the Anthropic SDK. Prompt-cache breakpoints, adaptive thinking, effort. |
+| `providers/openaiCompatible.ts` | Everything else, via the OpenAI SDK plus a base URL. |
+| `providers/toolEmulation.ts` | Tool calling for models that lack it. |
+| `llm.ts` | Dispatch, and error mapping across both SDKs. |
+
+**Two implementations cover every provider.** The OpenAI chat-completions
+format is the lingua franca: OpenAI, Moonshot, OpenRouter, Groq, Together,
+Ollama and LM Studio all speak it, so they differ only by base URL and model
+id. Adding another such provider is a row in `config/providers.ts`, not code.
+
+### Model references and capabilities
+
+A model is addressed as `provider:model` — `anthropic:claude-sonnet-5`,
+`ollama:llama3.1:8b`. Parsing splits on the *first* colon only, because Ollama
+tags contain their own.
+
+`config/models.ts` carries capability flags per model, and they are load
+bearing rather than decorative: `effort` and `adaptiveThinking` are Anthropic
+parameters that are a 400 anywhere else, so they are gated on the flag rather
+than sent hopefully. A model the learner typed themselves is not in the
+catalog; it gets synthesised defaults that assume native tools and no pricing.
+
+### Tool calling on models that do not have it
+
+Lyceum leans on tools: they are how objectives get marked, how curricula and
+quizzes acquire structure, and how notes become cards. Plenty of good
+open-weight models cannot emit structured tool calls.
+
+Rather than disabling half the app on those models, `toolEmulation.ts`
+describes a JSON protocol in the system prompt and parses the calls back out
+of the reply. Callers above the provider layer never know the difference.
+
+The subtle part is streaming. A fence can straddle a chunk boundary, so the
+provider holds back any trailing text that could be the start of one, and stops
+forwarding deltas entirely once a fence opens — otherwise the learner watches
+raw JSON scroll past mid-explanation. A malformed block loses its action but is
+still stripped from the visible text.
+
+This is strictly a fallback, and Settings says so when a chosen model is in
+that category.
+
+### Keys
+
+One encrypted key per provider, each its own `<provider>.key.enc` under
+`userData`, with the same guarantees as before: `safeStorage`, `0600`, refuse
+rather than fall back to plaintext, never over IPC. Providers marked
+`auth: 'none'` (a local runtime) are always "ready" and store nothing.
+
+A pre-multi-provider install is migrated on first launch: the old
+`anthropic.key.enc` is renamed, and bare model ids in settings are read as
+`anthropic:` references.
+
+---
+
 ## The teaching harness
 
 `src/main/harness/` is the product's engine; everything else is UI around it.
 
 | Module | Responsibility |
 |---|---|
-| `anthropicClient.ts` | Thin SDK wrapper. Streaming, the tool-use loop, retry/backoff, error mapping, token usage emission. |
+| `llm.ts` | Provider dispatch. Streaming, the tool-use loop, retry/backoff, error mapping, token usage. |
 | `promptAssembler.ts` | Builds the system prompt per mode and composes the messages array. |
 | `contextManager.ts` | Assembles the per-turn context block within a token budget; folds old turns into `state_summary` when it overflows. |
 | `toolRegistry.ts` | Tool definitions plus their main-process executors. |
@@ -133,15 +197,17 @@ is the single most product-defining file in the repo.
 
 | Mode | Purpose | Default model | Tools |
 |---|---|---|---|
-| Curriculum architect | Topic + brief diagnostic → structured curriculum | Sonnet | `propose_curriculum` |
-| Tutor | The main teaching loop | Sonnet (configurable) | `mark_objective`, `suggest_note`, `render_visual`, `propose_quiz` |
-| Assessor | Generate a checkpoint quiz | Sonnet | `generate_quiz` |
-| Grader | Score one free-text answer | Haiku | — |
-| Card smith | Notes → flashcards | Haiku | `generate_flashcards` |
-| Summarizer | Module summaries + `state_summary` | Haiku | — |
+| Curriculum architect | Topic + brief diagnostic → structured curriculum | tutor | `propose_curriculum` |
+| Tutor | The main teaching loop | tutor | `mark_objective`, `suggest_note`, `render_visual`, `propose_quiz` |
+| Assessor | Generate a checkpoint quiz | tutor | `generate_quiz` |
+| Grader | Score one free-text answer | background | — |
+| Card smith | Notes → flashcards | background | `generate_flashcards` |
+| Summarizer | Module summaries + `state_summary` | background | — |
 
-Cheap models do background structured work; the mid-tier model teaches. The
-learner can bump the tutor to Opus for hard subjects.
+Modes name a **role**, not a model. The learner configures two — one for
+teaching, one for background work — and they may be on different providers
+entirely. Keeping the mapping in one table makes the cost profile of the whole
+app legible at a glance.
 
 ### A tutor turn
 
@@ -348,6 +414,9 @@ suffix; a test asserts this, because a suffixed ID would 404.
 - `tests/quiz.test.ts` — coercion of `generate_quiz` and `generate_flashcards`
   output, and parsing of the grader's verdict.
 - `tests/sanitise.test.ts` — the SVG sanitiser policy, under jsdom.
+- `tests/providers.test.ts` — the emulated tool protocol (extraction, hostile
+  input, partial fences) and catalog invariants, including that no non-Anthropic
+  model claims an Anthropic-only parameter.
 
 Two things need a live Electron runtime and so sit outside `npm test`; both were
 run as throwaway harnesses at their phase's acceptance:
@@ -376,22 +445,29 @@ run as throwaway harnesses at their phase's acceptance:
   `fetch` synchronously, which always reads as reachable) — worth remembering
   that a green result is only as good as the probe behind it.
 
+- **Phase 4, providers** — a fake OpenAI-compatible server stood up in-process
+  exercised the whole non-Anthropic path with no key and no network: tool
+  arguments arriving fragmented across chunks and being reassembled, the
+  emulated protocol parsing a call out of prose, a fence deliberately split
+  across chunk boundaries never leaking raw JSON into the stream, usage
+  accumulating across tool round trips, and both misconfiguration paths (no
+  base URL, no key) failing with a message a learner can act on.
+
 The live teaching loop itself — streaming, the tool loop, the architect's
-diagnostic — requires a funded API key and is exercised manually.
+diagnostic — requires a funded API key and is exercised manually. That is now
+true per provider: the Anthropic path and the OpenAI-compatible path are
+verified against a fake server, but neither has been run against the real
+vendor endpoints.
 
 ---
 
-## Swapping the model backend
+## Adding a provider
 
-The harness is the only thing that talks to Anthropic, and it does so through a
-narrow surface in `harness/anthropicClient.ts`: `runTurn` (streaming plus the
-tool loop) and `runSimple` (one-shot). Everything above it — modes, prompts,
-context assembly, tool execution, the services — is provider-agnostic already.
+Most providers need no code at all — add a row to `config/providers.ts` with a
+base URL and whether it needs a key, plus optional model presets in
+`config/models.ts`. Anything speaking the OpenAI chat-completions format works
+from there.
 
-Pointing Lyceum at a local model would mean providing another implementation of
-those two functions, plus capability flags in `config/models.ts` so per-model
-tuning (`effort`, adaptive thinking) is gated correctly, and a cost model that
-reports zero. The pieces that would need real thought are tool use, which local
-runtimes support unevenly, and streaming deltas. This is deliberately **not**
-implemented: an unused abstraction layer is a liability, and the shape of the
-seam is clear enough to add when there is a concrete backend to target.
+A genuinely different wire format (a vendor with its own SDK and message shape)
+means a third implementation of `Provider` in `harness/providers/`, registered
+in the dispatcher in `llm.ts`. Nothing above that layer changes.

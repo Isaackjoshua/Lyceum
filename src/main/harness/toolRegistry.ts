@@ -1,7 +1,7 @@
-import type Anthropic from '@anthropic-ai/sdk'
 import type { NoteType, TurnEvent, VisualPayload } from '@shared/types.js'
 import { NOTE_TYPES } from '@shared/types.js'
 import { getDatabase } from '../db/index.js'
+import type { ToolSpec } from './providers/types.js'
 
 /**
  * Tool definitions and their main-process executors.
@@ -32,7 +32,7 @@ export type ToolExecutor = (
 ) => ToolOutcome
 
 interface ToolEntry {
-  definition: Anthropic.Tool
+  definition: ToolSpec
   execute: ToolExecutor
 }
 
@@ -56,7 +56,7 @@ const markObjective: ToolEntry = {
     name: 'mark_objective',
     description:
       'Mark a learning objective as met once the learner has demonstrably shown they understand it. Use only on real evidence from this conversation, not on the learner asserting they understand.',
-    input_schema: {
+    parameters: {
       type: 'object',
       properties: {
         objective_id: {
@@ -109,7 +109,7 @@ const suggestNote: ToolEntry = {
     name: 'suggest_note',
     description:
       'Offer to save a genuinely key concept the learner just encountered. Use sparingly — a note that fires every turn is noise. The learner decides whether to keep it.',
-    input_schema: {
+    parameters: {
       type: 'object',
       properties: {
         type: { type: 'string', enum: NOTE_TYPES },
@@ -158,7 +158,7 @@ const renderVisual: ToolEntry = {
     name: 'render_visual',
     description:
       'Render ONE relationship, step, or comparison inline — never the finished mechanism. Skip it for pure procedure, notation, and quick confirmations.',
-    input_schema: {
+    parameters: {
       type: 'object',
       properties: {
         format: {
@@ -204,7 +204,7 @@ const proposeQuiz: ToolEntry = {
     name: 'propose_quiz',
     description:
       'Signal a natural checkpoint and offer a short mastery check on the current module. Use when a coherent chunk of material is genuinely finished.',
-    input_schema: {
+    parameters: {
       type: 'object',
       properties: {
         module_id: { type: 'integer' },
@@ -236,7 +236,7 @@ const REGISTRY: Record<string, ToolEntry> = {
 }
 
 /** Tool definitions for the named tools, in a stable order (cache friendly). */
-export function toolDefinitions(names: readonly string[]): Anthropic.Tool[] {
+export function toolDefinitions(names: readonly string[]): ToolSpec[] {
   return names
     .filter((name) => name in REGISTRY)
     .map((name) => REGISTRY[name]!.definition)
@@ -264,11 +264,11 @@ export function executeTool(
 }
 
 /** The propose_curriculum tool — architect mode only, no side effects. */
-export const PROPOSE_CURRICULUM_TOOL: Anthropic.Tool = {
+export const PROPOSE_CURRICULUM_TOOL: ToolSpec = {
   name: 'propose_curriculum',
   description:
     "Return a structured, editable curriculum for the learner's goal and level. Call this only after the learner has answered your calibrating question.",
-  input_schema: {
+  parameters: {
     type: 'object',
     properties: {
       title: { type: 'string', description: 'A specific title for this course of study.' },
@@ -302,11 +302,11 @@ export const PROPOSE_CURRICULUM_TOOL: Anthropic.Tool = {
 }
 
 /** generate_quiz — Assessor mode only. No side effects; the caller persists. */
-export const GENERATE_QUIZ_TOOL: Anthropic.Tool = {
+export const GENERATE_QUIZ_TOOL: ToolSpec = {
   name: 'generate_quiz',
   description:
     "Produce a mixed quiz scoped to the module's objectives and the material the learner has actually covered.",
-  input_schema: {
+  parameters: {
     type: 'object',
     properties: {
       questions: {
@@ -343,10 +343,10 @@ export const GENERATE_QUIZ_TOOL: Anthropic.Tool = {
 }
 
 /** generate_flashcards — Card smith mode only. */
-export const GENERATE_FLASHCARDS_TOOL: Anthropic.Tool = {
+export const GENERATE_FLASHCARDS_TOOL: ToolSpec = {
   name: 'generate_flashcards',
   description: "Turn a module's notes into active-recall cards (question/answer and cloze).",
-  input_schema: {
+  parameters: {
     type: 'object',
     properties: {
       cards: {

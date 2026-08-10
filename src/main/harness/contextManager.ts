@@ -1,5 +1,5 @@
-import type Anthropic from '@anthropic-ai/sdk'
 import type { Curriculum, Message, Module, Objective } from '@shared/types.js'
+import type { ChatMessage } from './providers/types.js'
 
 /**
  * Assembles the per-turn context and keeps it inside a token budget.
@@ -68,8 +68,8 @@ export function buildContextBlock(input: ContextInput): string {
   return lines.join('\n')
 }
 
-/** Transcript rows converted to SDK messages, dropping tool bookkeeping rows. */
-export function toApiMessages(messages: Message[]): Anthropic.MessageParam[] {
+/** Transcript rows converted to chat messages, dropping tool bookkeeping rows. */
+export function toApiMessages(messages: Message[]): ChatMessage[] {
   return messages
     .filter((m) => m.role === 'user' || m.role === 'assistant')
     .filter((m) => m.content.trim().length > 0)

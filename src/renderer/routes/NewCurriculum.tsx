@@ -20,7 +20,8 @@ type Stage = 'intake' | 'diagnostic' | 'proposal'
  */
 export function NewCurriculumRoute(): JSX.Element {
   const navigate = useNavigate()
-  const keyStatus = useSettingsStore((s) => s.keyStatus)
+  // Readiness now means: the provider behind the chosen tutor model is usable.
+  const settings = useSettingsStore((s) => s.settings)
   const refreshList = useCurriculumStore((s) => s.refresh)
 
   const [stage, setStage] = useState<Stage>('intake')
@@ -103,14 +104,15 @@ export function NewCurriculumRoute(): JSX.Element {
     navigate(`/curriculum/${result.data.id}`)
   }
 
-  if (keyStatus && !keyStatus.present) {
+  if (settings && !settings.keyPresent) {
     return (
       <div className="flex h-full items-center justify-center px-8">
         <div className="max-w-md text-center">
-          <h1 className="font-serif text-xl font-semibold">An API key is needed</h1>
+          <h1 className="font-serif text-xl font-semibold">No model configured</h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            Building a curriculum requires a live call to Claude. Add your Anthropic
-            key in Settings first.
+            Building a curriculum needs a live model call. Choose a provider and
+            add its key in Settings — or point Lyceum at a local runtime, which
+            needs no key at all.
           </p>
           <Button className="mt-5" onClick={() => navigate('/settings')}>
             Open Settings

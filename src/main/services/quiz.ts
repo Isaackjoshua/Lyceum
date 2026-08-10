@@ -16,8 +16,9 @@ import {
   type NewQuestion
 } from '../db/queries/quiz.js'
 import { getDatabase } from '../db/index.js'
-import { runSimple, runTurn } from '../harness/anthropicClient.js'
-import { MODES } from '../harness/modes.js'
+import { readSettings } from '../db/queries/settings.js'
+import { runSimple, runTurn } from '../harness/llm.js'
+import { MODES, modelForRole } from '../harness/modes.js'
 import { GENERATE_QUIZ_TOOL } from '../harness/toolRegistry.js'
 import { assertWithinCap } from './usage.js'
 
@@ -110,6 +111,7 @@ export async function generateQuiz(
 
   const { module, objectives, curriculum } = getModuleWithObjectives(moduleId)
   const mode = MODES.assessor
+  const modelRef = modelForRole(mode.role, readSettings())
 
   const userContent = [
     `Curriculum: ${curriculum.title}`,
@@ -128,8 +130,8 @@ export async function generateQuiz(
     .join('\n')
 
   const result = await runTurn({
-    model: mode.model,
-    system: [{ type: 'text', text: mode.system, cache_control: { type: 'ephemeral' } }],
+    modelRef,
+    system: [mode.system],
     messages: [{ role: 'user', content: userContent }],
     tools: [GENERATE_QUIZ_TOOL],
     maxTokens: mode.maxTokens,
@@ -139,7 +141,7 @@ export async function generateQuiz(
   logUsage({
     sessionId: null,
     mode: 'assessor',
-    model: mode.model,
+    model: modelRef,
     inputTokens: result.usage.inputTokens,
     outputTokens: result.usage.outputTokens,
     estimatedUsd: result.usage.estimatedUsd
@@ -209,9 +211,10 @@ async function gradeFreeText(
   }
 
   const mode = MODES.grader
+  const modelRef = modelForRole(mode.role, readSettings())
   try {
     const result = await runSimple({
-      model: mode.model,
+      modelRef,
       system: mode.system,
       userContent: `Question:\n${question.prompt}\n\nModel answer:\n${question.answer}\n\nLearner's answer:\n${response}`,
       maxTokens: mode.maxTokens
@@ -220,7 +223,7 @@ async function gradeFreeText(
     logUsage({
       sessionId: null,
       mode: 'grader',
-      model: mode.model,
+      model: modelRef,
       inputTokens: result.usage.inputTokens,
       outputTokens: result.usage.outputTokens,
       estimatedUsd: result.usage.estimatedUsd

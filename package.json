@@ -25,6 +25,7 @@
     "dompurify": "^3.4.13",
     "electron-updater": "^6.3.9",
     "marked": "^18.0.9",
+    "openai": "^7.4.0",
     "ts-fsrs": "^5.4.1"
   },
   "devDependencies": {

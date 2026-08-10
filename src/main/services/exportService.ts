@@ -4,9 +4,10 @@ import { getModuleWithObjectives } from '../db/queries/curriculum.js'
 import { listNotes } from '../db/queries/notes.js'
 import { logUsage } from '../db/queries/session.js'
 import { readSettings } from '../db/queries/settings.js'
-import { runSimple } from '../harness/anthropicClient.js'
-import { MODES } from '../harness/modes.js'
+import { runSimple } from '../harness/llm.js'
+import { MODES, modelForRole } from '../harness/modes.js'
 import { hasApiKey } from '../security/keyVault.js'
+import { parseModelRef } from '@config/models.js'
 import { spendStatus } from './usage.js'
 import { savePdf, slugify } from '../pdf/export.js'
 import type { PdfSection } from '../pdf/render.js'
@@ -19,7 +20,9 @@ async function generateSummary(
 ): Promise<string | null> {
   // Export must keep working when generation is unavailable — a study guide
   // without its summary is far better than a failed export.
-  if (!hasApiKey()) return null
+  const settings = readSettings()
+  const modelRef = modelForRole('background', settings)
+  if (!hasApiKey(parseModelRef(modelRef).provider)) return null
   if (spendStatus().blocked) return null
 
   const mode = MODES.moduleSummary
@@ -30,7 +33,7 @@ async function generateSummary(
 
   try {
     const result = await runSimple({
-      model: mode.model,
+      modelRef,
       system: mode.system,
       userContent: `Module: ${moduleTitle}\n\nObjectives:\n${objectives
         .map((o) => `- ${o}`)
@@ -41,7 +44,7 @@ async function generateSummary(
     logUsage({
       sessionId: null,
       mode: 'moduleSummary',
-      model: mode.model,
+      model: modelRef,
       inputTokens: result.usage.inputTokens,
       outputTokens: result.usage.outputTokens,
       estimatedUsd: result.usage.estimatedUsd

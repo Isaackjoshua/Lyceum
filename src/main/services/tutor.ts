@@ -1,5 +1,5 @@
 import type { SessionDetail, TurnEvent } from '@shared/types.js'
-import { MODELS, type ModelId } from '@config/models.js'
+import { lookupModel } from '@config/models.js'
 import {
   getModuleWithObjectives,
   markModuleStarted
@@ -15,11 +15,11 @@ import {
   startSession
 } from '../db/queries/session.js'
 import { readSettings } from '../db/queries/settings.js'
-import { runSimple, runTurn } from '../harness/anthropicClient.js'
+import { runSimple, runTurn } from '../harness/llm.js'
 import { estimateTokens } from '../harness/contextManager.js'
-import { MODES } from '../harness/modes.js'
+import { MODES, modelForRole } from '../harness/modes.js'
 import { assembleTutorRequest } from '../harness/promptAssembler.js'
-import { toolDefinitions } from '../harness/toolRegistry.js'
+import { executeTool, toolDefinitions } from '../harness/toolRegistry.js'
 import { assertWithinCap } from './usage.js'
 
 /** Fraction of the model's context we spend on the verbatim transcript tail. */
@@ -59,12 +59,13 @@ async function foldOverflow(
   if (overflow.length === 0) return
 
   const mode = MODES.stateSummary
+  const modelRef = modelForRole(mode.role, readSettings())
   const transcript = overflow
     .map((m) => `${m.role === 'user' ? 'Learner' : 'Tutor'}: ${m.content}`)
     .join('\n\n')
 
   const result = await runSimple({
-    model: mode.model,
+    modelRef,
     system: mode.system,
     userContent: `Existing running summary:\n${existingSummary?.trim() || '(none yet)'}\n\nTurns being dropped from context:\n${transcript}`,
     maxTokens: mode.maxTokens
@@ -78,7 +79,7 @@ async function foldOverflow(
   logUsage({
     sessionId,
     mode: 'stateSummary',
-    model: mode.model,
+    model: modelRef,
     inputTokens: result.usage.inputTokens,
     outputTokens: result.usage.outputTokens,
     estimatedUsd: result.usage.estimatedUsd
@@ -103,11 +104,8 @@ export async function runTutorTurn(args: TutorTurnArgs): Promise<void> {
   assertWithinCap()
 
   const settings = readSettings()
-  const model = settings.tutorModel
-  const maxTokens = Math.min(
-    settings.maxTokens,
-    MODELS[model as ModelId]?.maxOutput ?? settings.maxTokens
-  )
+  const modelRef = settings.tutorModel
+  const maxTokens = Math.min(settings.maxTokens, lookupModel(modelRef).maxOutput)
 
   const session = getSession(sessionId)
   const { module, objectives, curriculum } = getModuleWithObjectives(session.moduleId)
@@ -131,7 +129,7 @@ export async function runTutorTurn(args: TutorTurnArgs): Promise<void> {
   })
 
   const result = await runTurn({
-    model,
+    modelRef,
     system: request.system,
     messages: request.messages,
     tools: toolDefinitions(MODES.tutor.tools),
@@ -142,24 +140,25 @@ export async function runTutorTurn(args: TutorTurnArgs): Promise<void> {
     onToolResult: (tool, hint) => {
       if (hint) emit({ type: 'tool_result', requestId, tool, hint })
     },
-    toolContext: {
-      sessionId,
-      moduleId: session.moduleId,
-      curriculumId: curriculum.id
-    },
+    executeTool: (name, input) =>
+      executeTool(name, input, {
+        sessionId,
+        moduleId: session.moduleId,
+        curriculumId: curriculum.id
+      }),
     ...(args.signal ? { signal: args.signal } : {})
   })
 
   const stored = appendMessage(sessionId, 'assistant', result.text, {
     hints: result.hints,
-    model,
+    model: modelRef,
     stopReason: result.stopReason
   })
 
   logUsage({
     sessionId,
     mode: 'tutor',
-    model,
+    model: modelRef,
     inputTokens: result.usage.inputTokens,
     outputTokens: result.usage.outputTokens,
     estimatedUsd: result.usage.estimatedUsd

@@ -3,9 +3,10 @@ import { getModuleWithObjectives } from '../db/queries/curriculum.js'
 import { insertCards } from '../db/queries/flashcards.js'
 import { listNotes } from '../db/queries/notes.js'
 import { logUsage } from '../db/queries/session.js'
+import { readSettings } from '../db/queries/settings.js'
 import { recomputeMastery } from '../db/queries/quiz.js'
-import { runTurn } from '../harness/anthropicClient.js'
-import { MODES } from '../harness/modes.js'
+import { runTurn } from '../harness/llm.js'
+import { MODES, modelForRole } from '../harness/modes.js'
 import { GENERATE_FLASHCARDS_TOOL } from '../harness/toolRegistry.js'
 import { assertWithinCap } from './usage.js'
 
@@ -62,6 +63,7 @@ export async function generateCards(moduleId: number): Promise<CardGenerationRes
   }
 
   const mode = MODES.cardSmith
+  const modelRef = modelForRole(mode.role, readSettings())
   const noteBlock = notes
     .map(
       (n) =>
@@ -71,8 +73,8 @@ export async function generateCards(moduleId: number): Promise<CardGenerationRes
     .join('\n\n---\n\n')
 
   const result = await runTurn({
-    model: mode.model,
-    system: [{ type: 'text', text: mode.system, cache_control: { type: 'ephemeral' } }],
+    modelRef,
+    system: [mode.system],
     messages: [
       {
         role: 'user',
@@ -87,7 +89,7 @@ export async function generateCards(moduleId: number): Promise<CardGenerationRes
   logUsage({
     sessionId: null,
     mode: 'cardSmith',
-    model: mode.model,
+    model: modelRef,
     inputTokens: result.usage.inputTokens,
     outputTokens: result.usage.outputTokens,
     estimatedUsd: result.usage.estimatedUsd

@@ -1,14 +1,26 @@
 import { create } from 'zustand'
-import type { KeyStatus, Settings } from '@shared/types'
+import type {
+  KeyStatus,
+  ProviderCatalog,
+  ProviderConfig,
+  Settings
+} from '@shared/types'
 
 interface SettingsState {
   settings: Settings | null
-  keyStatus: KeyStatus | null
+  /** Key status per provider id. */
+  keys: Record<string, KeyStatus>
+  catalog: ProviderCatalog | null
   loading: boolean
   error: string | null
+
   load: () => Promise<void>
   update: (patch: Partial<Settings>) => Promise<void>
-  refreshKeyStatus: () => Promise<void>
+  refreshKeys: () => Promise<void>
+  setProviderConfig: (
+    provider: string,
+    patch: Partial<ProviderConfig>
+  ) => Promise<void>
 }
 
 /** Applies theme + font scale to the document root. */
@@ -20,17 +32,22 @@ export function applyAppearance(settings: Settings): void {
   root.style.fontSize = `${settings.fontScale}px`
 }
 
+const byProvider = (statuses: KeyStatus[]): Record<string, KeyStatus> =>
+  Object.fromEntries(statuses.map((s) => [s.provider, s]))
+
 export const useSettingsStore = create<SettingsState>((set, get) => ({
   settings: null,
-  keyStatus: null,
+  keys: {},
+  catalog: null,
   loading: true,
   error: null,
 
   load: async () => {
     set({ loading: true, error: null })
-    const [settingsResult, keyResult] = await Promise.all([
+    const [settingsResult, keyResult, catalogResult] = await Promise.all([
       window.api.settings.get(),
-      window.api.key.getStatus()
+      window.api.key.getStatus(),
+      window.api.providers.list()
     ])
 
     if (!settingsResult.ok) {
@@ -40,7 +57,8 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     applyAppearance(settingsResult.data)
     set({
       settings: settingsResult.data,
-      keyStatus: keyResult.ok ? keyResult.data : null,
+      keys: keyResult.ok ? byProvider(keyResult.data) : {},
+      catalog: catalogResult.ok ? catalogResult.data : null,
       loading: false,
       error: keyResult.ok ? null : keyResult.error
     })
@@ -56,14 +74,32 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     set({ settings: result.data, error: null })
   },
 
-  refreshKeyStatus: async () => {
-    const result = await window.api.key.getStatus()
-    if (result.ok) {
-      const settings = get().settings
-      set({
-        keyStatus: result.data,
-        settings: settings ? { ...settings, keyPresent: result.data.present } : settings
-      })
+  refreshKeys: async () => {
+    const [keyResult, settingsResult] = await Promise.all([
+      window.api.key.getStatus(),
+      window.api.settings.get()
+    ])
+    set({
+      ...(keyResult.ok ? { keys: byProvider(keyResult.data) } : {}),
+      ...(settingsResult.ok ? { settings: settingsResult.data } : {})
+    })
+  },
+
+  setProviderConfig: async (provider, patch) => {
+    const result = await window.api.providers.setConfig(provider, patch)
+    if (!result.ok) {
+      set({ error: result.error })
+      return
     }
+    // The catalog derives from provider config, so reload it.
+    const catalog = await window.api.providers.list()
+    const settings = get().settings
+    set({
+      catalog: catalog.ok ? catalog.data : get().catalog,
+      settings: settings
+        ? { ...settings, providers: { ...settings.providers, [provider]: result.data } }
+        : settings,
+      error: null
+    })
   }
 }))

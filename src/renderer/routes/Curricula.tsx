@@ -9,8 +9,9 @@ import { useSettingsStore } from '@/stores/settingsStore'
 export function CurriculaRoute(): JSX.Element {
   const navigate = useNavigate()
   const { list, refresh, loading, showArchived, setShowArchived } = useCurriculumStore()
-  const keyStatus = useSettingsStore((s) => s.keyStatus)
-  const hasKey = keyStatus?.present ?? false
+  // Readiness now means: the provider behind the chosen tutor model is usable.
+  const settings = useSettingsStore((s) => s.settings)
+  const hasKey = settings?.keyPresent ?? false
 
   useEffect(() => {
     void refresh()
@@ -25,7 +26,7 @@ export function CurriculaRoute(): JSX.Element {
           <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
             {hasKey
               ? 'Tell Lyceum a subject and a goal. It will ask one calibrating question, then draft a syllabus you can edit before saving.'
-              : 'Add your Anthropic API key first — Lyceum needs it to reach Claude.'}
+              : 'Choose a model provider in Settings first — Lyceum needs one to teach.'}
           </p>
           <Button
             className="mt-5"

@@ -1,5 +1,6 @@
 import type {
   ArchitectMessage,
+  ProviderConfig,
   CreateNoteArgs,
   CurriculumProposal,
   LearnerLevel,
@@ -9,7 +10,8 @@ import type {
   Settings
 } from '@shared/types.js'
 import { NOTE_TYPES } from '@shared/types.js'
-import { MODELS } from '@config/models.js'
+import { parseModelRef } from '@config/models.js'
+import { PROVIDERS } from '@config/providers.js'
 
 /**
  * Input validation for values crossing the IPC boundary.
@@ -92,7 +94,7 @@ function optionalId(value: unknown, field: string): number | null {
   return requireInt(value, field)
 }
 
-export type SettingsPatch = Partial<Omit<Settings, 'keyPresent'>>
+export type SettingsPatch = Partial<Omit<Settings, 'keyPresent' | 'providers'>>
 
 export function sanitiseSettingsPatch(input: unknown): SettingsPatch {
   if (typeof input !== 'object' || input === null || Array.isArray(input)) {
@@ -101,10 +103,23 @@ export function sanitiseSettingsPatch(input: unknown): SettingsPatch {
   const raw = input as Record<string, unknown>
   const patch: SettingsPatch = {}
 
+  // A model reference is `provider:model`. The provider must be one we know,
+  // but the model id itself is free-form — aggregators and local runtimes let
+  // the learner type their own, and rejecting those would defeat the point.
+  const checkModelRef = (value: unknown, field: string): string => {
+    const ref = requireString(value, field)
+    const { provider, id } = parseModelRef(ref)
+    if (!(provider in PROVIDERS)) throw new Error(`Unknown provider: ${provider}`)
+    if (!id.trim()) throw new Error(`${field} is missing a model id.`)
+    if (id.length > 200) throw new Error(`${field} is too long.`)
+    return ref
+  }
+
   if (raw.tutorModel !== undefined) {
-    const model = requireString(raw.tutorModel, 'tutorModel')
-    if (!(model in MODELS)) throw new Error(`Unknown model: ${model}`)
-    patch.tutorModel = model
+    patch.tutorModel = checkModelRef(raw.tutorModel, 'tutorModel')
+  }
+  if (raw.backgroundModel !== undefined) {
+    patch.backgroundModel = checkModelRef(raw.backgroundModel, 'backgroundModel')
   }
 
   if (raw.maxTokens !== undefined) {
@@ -327,4 +342,50 @@ export function sanitiseNoteFilter(input: unknown): NoteFilter {
   }
 
   return filter
+}
+
+/* ------------------------------------------------------- provider config */
+
+const MAX_CUSTOM_MODELS = 40
+
+export function sanitiseProviderConfigPatch(input: unknown): Partial<ProviderConfig> {
+  const raw = requireObject(input, 'config')
+  const patch: Partial<ProviderConfig> = {}
+
+  if (raw.baseUrl !== undefined) {
+    const url = boundedString(raw.baseUrl ?? '', 'baseUrl', 500)
+    if (url) {
+      // Only http(s). A file: or data: base URL would be a way to make the
+      // main process read something it should not.
+      let parsed: URL
+      try {
+        parsed = new URL(url)
+      } catch {
+        throw new Error(`That is not a valid URL: ${url}`)
+      }
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+        throw new Error('A base URL must start with http:// or https://')
+      }
+    }
+    patch.baseUrl = url
+  }
+
+  if (raw.customModels !== undefined) {
+    if (!Array.isArray(raw.customModels)) {
+      throw new Error('customModels must be an array.')
+    }
+    if (raw.customModels.length > MAX_CUSTOM_MODELS) {
+      throw new Error(`Too many custom models (max ${MAX_CUSTOM_MODELS}).`)
+    }
+    const seen = new Set<string>()
+    patch.customModels = raw.customModels
+      .map((m, i) => boundedString(m, `customModels[${i}]`, 200))
+      .filter((m) => {
+        if (!m || seen.has(m)) return false
+        seen.add(m)
+        return true
+      })
+  }
+
+  return patch
 }

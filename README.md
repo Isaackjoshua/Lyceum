@@ -9,9 +9,11 @@ is the **teaching harness**: an orchestration layer that turns raw API calls int
 a disciplined tutor with a persistent curriculum, tracked progress, inline note
 capture, active-recall review, and PDF export.
 
-**Bring your own key.** Lyceum ships with no Anthropic API key. You supply your
-own; it is encrypted by your operating system's keychain and never leaves your
-machine except in calls to Anthropic, billed to your own account.
+**Bring your own key, and your own model.** Lyceum ships with no API key and is
+not tied to any one vendor. Use Claude, GPT, Kimi, or an open-weight model
+running on your own machine — keys are encrypted by your operating system's
+keychain and never leave your computer except in calls to the provider you
+chose, billed to your own account.
 
 ---
 
@@ -23,8 +25,7 @@ machine except in calls to Anthropic, billed to your own account.
 | **1** | Curriculum architect, streaming tutor chat, inline notes, per-module PDF | ✅ Done |
 | **2** | Quizzes + mastery, FSRS flashcard review, inline visuals, dashboard | ✅ Done |
 | **3** | Sandboxed widgets, context summarization, cost caps, backup/restore | ✅ Done |
-
-All four phases are complete.
+| **4** | Multi-provider support: OpenAI, Kimi, OpenRouter, Groq, local models | ✅ Done |
 
 ### What works today
 
@@ -76,14 +77,43 @@ checkpoint or review some cards. Reading does not move it.
 
 - **Node.js 20.11+** (developed on 22.x)
 - **npm 10+**
-- An Anthropic API key from <https://console.anthropic.com>
-- A working OS keychain:
+- A key from at least one provider — or nothing at all, if you run models
+  locally with Ollama or LM Studio
+- A working OS keychain (not needed for local-only use):
   - macOS — Keychain (built in)
   - Windows — DPAPI (built in)
   - Linux — `gnome-keyring` or `kwallet` must be running
 
 If no keychain is available, Lyceum **refuses to store your key** rather than
-writing it to disk in plaintext.
+writing it to disk in plaintext. Local providers still work in that case,
+since they need no key.
+
+## Providers
+
+| Provider | Needs a key | Notes |
+|---|---|---|
+| Anthropic | yes | Claude models. The strongest tutoring quality today. |
+| OpenAI | yes | GPT models. |
+| Moonshot | yes | Kimi models. Ids move quickly — type the current one. |
+| OpenRouter | yes | One key, hundreds of models including most open-weight ones. |
+| Groq | yes | Open-weight models, very fast. |
+| Together AI | yes | Hosted open-weight models. |
+| Ollama | **no** | Runs on your machine. Free and works offline. |
+| Custom | usually | Any other OpenAI-compatible endpoint. |
+
+You pick two models in Settings: one for **tutoring** and one for **background
+work** (summaries, flashcards, grading). They can be on different providers —
+teach on Claude and run background jobs on a local model, for instance.
+
+Model ids for the aggregators and local runtimes are typed in by you rather
+than picked from a fixed list, because those catalogs change far faster than
+this app does. The presets are a starting point, not a closed set.
+
+**A caveat worth knowing.** Lyceum leans on tool calling — it is how the tutor
+marks objectives, how curricula and quizzes get their structure, and how notes
+become flashcards. Most current models support it natively. For models that do
+not, Lyceum falls back to a prompted-JSON protocol that works but is less
+reliable; Settings tells you when a chosen model is in that category.
 
 ## Setup
 

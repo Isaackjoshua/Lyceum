@@ -5,13 +5,13 @@ import {
   sanitiseNoteArgs,
   sanitiseSettingsPatch
 } from '../src/main/ipc/validate.js'
-import { estimateCost, MODELS, TUTOR_MODEL_CHOICES } from '../config/models.js'
+import { estimateCost, lookupModel, MODELS, parseModelRef } from '../config/models.js'
 
 describe('sanitiseSettingsPatch', () => {
   it('passes through valid values', () => {
     expect(
       sanitiseSettingsPatch({
-        tutorModel: 'claude-opus-5',
+        tutorModel: 'anthropic:claude-opus-5',
         maxTokens: 4096,
         effort: 'high',
         theme: 'dark',
@@ -20,7 +20,7 @@ describe('sanitiseSettingsPatch', () => {
         spendCapBlocks: true
       })
     ).toEqual({
-      tutorModel: 'claude-opus-5',
+      tutorModel: 'anthropic:claude-opus-5',
       maxTokens: 4096,
       effort: 'high',
       theme: 'dark',
@@ -46,8 +46,22 @@ describe('sanitiseSettingsPatch', () => {
     }
   })
 
-  it('rejects an unknown model', () => {
-    expect(() => sanitiseSettingsPatch({ tutorModel: 'gpt-4' })).toThrow(/Unknown model/)
+  it('rejects an unknown provider', () => {
+    expect(() => sanitiseSettingsPatch({ tutorModel: 'skynet:gpt-4' })).toThrow(
+      /Unknown provider/
+    )
+  })
+
+  it('accepts a free-typed model id on a known provider', () => {
+    // Aggregators and local runtimes let the learner name their own model, so
+    // the id is deliberately not checked against the catalog.
+    expect(sanitiseSettingsPatch({ tutorModel: 'ollama:some-new-model' })).toEqual({
+      tutorModel: 'ollama:some-new-model'
+    })
+  })
+
+  it('rejects a reference with no model id', () => {
+    expect(() => sanitiseSettingsPatch({ tutorModel: 'openai:' })).toThrow(/model id/)
   })
 
   it('rejects out-of-range numbers', () => {
@@ -70,25 +84,54 @@ describe('sanitiseSettingsPatch', () => {
 })
 
 describe('model catalog', () => {
-  it('lists only known models as tutor choices', () => {
-    for (const id of TUTOR_MODEL_CHOICES) expect(MODELS[id]).toBeDefined()
-  })
-
-  it('uses bare model IDs with no date suffix', () => {
-    for (const model of Object.values(MODELS)) {
-      expect(model.id).not.toMatch(/-\d{8}$/)
+  it('keys every model by provider:id', () => {
+    for (const [ref, model] of Object.entries(MODELS)) {
+      expect(ref).toBe(`${model.provider}:${model.id}`)
     }
   })
 
-  it('estimates cost from per-million rates', () => {
-    // Opus 5: $5/M in, $25/M out.
-    expect(estimateCost('claude-opus-5', 1_000_000, 0)).toBeCloseTo(5)
-    expect(estimateCost('claude-opus-5', 0, 1_000_000)).toBeCloseTo(25)
-    expect(estimateCost('claude-opus-5', 500_000, 100_000)).toBeCloseTo(2.5 + 2.5)
+  it('uses bare Anthropic model IDs with no date suffix', () => {
+    for (const model of Object.values(MODELS)) {
+      if (model.provider === 'anthropic') expect(model.id).not.toMatch(/-\d{8}$/)
+    }
   })
 
-  it('returns zero for an unknown model rather than throwing', () => {
-    expect(estimateCost('nonexistent', 1_000_000, 1_000_000)).toBe(0)
+  it('parses references, and treats a bare id as Anthropic for old settings', () => {
+    expect(parseModelRef('openai:gpt-5.1')).toEqual({
+      provider: 'openai',
+      id: 'gpt-5.1'
+    })
+    expect(parseModelRef('claude-sonnet-5')).toEqual({
+      provider: 'anthropic',
+      id: 'claude-sonnet-5'
+    })
+  })
+
+  it('keeps model ids containing colons intact', () => {
+    // Ollama tags look like `llama3.1:8b`.
+    expect(parseModelRef('ollama:llama3.1:8b')).toEqual({
+      provider: 'ollama',
+      id: 'llama3.1:8b'
+    })
+  })
+
+  it('estimates cost from per-million rates', () => {
+    expect(estimateCost('anthropic:claude-opus-5', 1_000_000, 0)).toBeCloseTo(5)
+    expect(estimateCost('anthropic:claude-opus-5', 0, 1_000_000)).toBeCloseTo(25)
+    expect(estimateCost('openai:gpt-5.1', 1_000_000, 0)).toBeCloseTo(1.25)
+  })
+
+  it('returns zero for a model with no published pricing', () => {
+    expect(estimateCost('ollama:llama3.1', 1_000_000, 1_000_000)).toBe(0)
+    expect(estimateCost('custom:whatever', 1_000_000, 1_000_000)).toBe(0)
+  })
+
+  it('synthesises a usable entry for an unknown model', () => {
+    const model = lookupModel('openrouter:some/new-model')
+    expect(model.id).toBe('some/new-model')
+    expect(model.provider).toBe('openrouter')
+    // Assume native tools; the runtime falls back if a call is rejected.
+    expect(model.capabilities.tools).toBe(true)
   })
 })
 

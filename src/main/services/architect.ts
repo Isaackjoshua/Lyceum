@@ -7,9 +7,9 @@ import type {
 } from '@shared/types.js'
 import { readSettings } from '../db/queries/settings.js'
 import { logUsage } from '../db/queries/session.js'
-import { runTurn } from '../harness/anthropicClient.js'
+import { runTurn } from '../harness/llm.js'
 import { assertWithinCap } from './usage.js'
-import { MODES } from '../harness/modes.js'
+import { MODES, modelForRole } from '../harness/modes.js'
 import { assembleArchitectRequest } from '../harness/promptAssembler.js'
 import { PROPOSE_CURRICULUM_TOOL } from '../harness/toolRegistry.js'
 
@@ -82,10 +82,11 @@ export async function runArchitectTurn(
 
   const settings = readSettings()
   const mode = MODES.architect
+  const modelRef = modelForRole(mode.role, settings)
   const request = assembleArchitectRequest(messages)
 
   const result = await runTurn({
-    model: mode.model,
+    modelRef,
     system: request.system,
     messages: request.messages,
     tools: [PROPOSE_CURRICULUM_TOOL],
@@ -100,7 +101,7 @@ export async function runArchitectTurn(
   logUsage({
     sessionId: null,
     mode: 'architect',
-    model: mode.model,
+    model: modelRef,
     inputTokens: result.usage.inputTokens,
     outputTokens: result.usage.outputTokens,
     estimatedUsd: result.usage.estimatedUsd
