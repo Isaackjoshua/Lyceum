@@ -10,14 +10,20 @@ import {
   Square,
   X
 } from 'lucide-react'
-import type { CreateNoteArgs, TurnEvent, VisualPayload } from '@shared/types'
+import type {
+  CreateNoteArgs,
+  SpendStatus,
+  TurnEvent,
+  UsageTotals,
+  VisualPayload
+} from '@shared/types'
 import { Button } from '@/components/ui/button'
 import { Markdown } from '@/components/Markdown'
 import { NoteCaptureModal, type NoteDraft } from '@/components/NoteCaptureModal'
 import { NotesDrawer } from '@/components/NotesDrawer'
 import { SelectionToolbar, useSelectionCapture } from '@/components/SelectionToolbar'
 import { VisualRenderer } from '@/components/VisualRenderer'
-import { cn } from '@/lib/utils'
+import { cn, formatUsd } from '@/lib/utils'
 import { useNotesStore } from '@/stores/notesStore'
 import { useSessionStore } from '@/stores/sessionStore'
 
@@ -61,6 +67,8 @@ export function SessionRoute(): JSX.Element {
 
   const [input, setInput] = useState('')
   const [draft, setDraft] = useState<NoteDraft | null>(null)
+  const [usage, setUsage] = useState<UsageTotals | null>(null)
+  const [spend, setSpend] = useState<SpendStatus | null>(null)
 
   const transcriptRef = useRef<HTMLDivElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -76,6 +84,19 @@ export function SessionRoute(): JSX.Element {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
   }, [detail?.messages.length, streamingText])
+
+  // Refresh cost after each completed turn, not on every streamed delta.
+  const sessionId = detail?.session.id
+  const turnCount = detail?.messages.length ?? 0
+  useEffect(() => {
+    if (sessionId === undefined) return
+    void window.api.usage.session(sessionId).then((r) => {
+      if (r.ok) setUsage(r.data)
+    })
+    void window.api.usage.spendStatus().then((r) => {
+      if (r.ok) setSpend(r.data)
+    })
+  }, [sessionId, turnCount])
 
   const busy = activeRequestId !== null
 
@@ -152,6 +173,9 @@ export function SessionRoute(): JSX.Element {
               {detail.curriculum.title} ·{' '}
               {detail.module.objectives.length - openObjectives.length}/
               {detail.module.objectives.length} objectives met
+              {usage && usage.estimatedUsd > 0 && (
+                <> · {formatUsd(usage.estimatedUsd)} this session</>
+              )}
             </p>
           </div>
 
@@ -179,6 +203,21 @@ export function SessionRoute(): JSX.Element {
               Working toward
             </p>
             <p className="mt-0.5 text-xs">{openObjectives[0]!.text}</p>
+          </div>
+        )}
+
+        {spend?.warn && (
+          <div
+            className={cn(
+              'border-b px-6 py-2 text-xs',
+              spend.blocked
+                ? 'border-destructive/40 bg-destructive/10 text-destructive'
+                : 'bg-accent/10 text-foreground'
+            )}
+          >
+            {spend.blocked
+              ? `Monthly cap of ${formatUsd(spend.capUsd)} reached — generation is blocked. Raise it in Settings to continue.`
+              : `${Math.round(spend.fraction * 100)}% of your ${formatUsd(spend.capUsd)} monthly cap used (${formatUsd(spend.spentUsd)}).`}
           </div>
         )}
 

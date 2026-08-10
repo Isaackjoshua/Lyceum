@@ -8,6 +8,7 @@ import type {
 import { readSettings } from '../db/queries/settings.js'
 import { logUsage } from '../db/queries/session.js'
 import { runTurn } from '../harness/anthropicClient.js'
+import { assertWithinCap } from './usage.js'
 import { MODES } from '../harness/modes.js'
 import { assembleArchitectRequest } from '../harness/promptAssembler.js'
 import { PROPOSE_CURRICULUM_TOOL } from '../harness/toolRegistry.js'
@@ -77,6 +78,8 @@ export async function runArchitectTurn(
   onText: (delta: string) => void,
   signal?: AbortSignal
 ): Promise<ArchitectTurnResult> {
+  assertWithinCap()
+
   const settings = readSettings()
   const mode = MODES.architect
   const request = assembleArchitectRequest(messages)

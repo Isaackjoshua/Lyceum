@@ -21,6 +21,9 @@ function contentSecurityPolicy(): string {
     "font-src 'self' data:",
     is.dev ? "connect-src 'self' ws: http://localhost:*" : "connect-src 'self'",
     "object-src 'none'",
+    // Interactive widgets are srcdoc iframes; they carry their own stricter
+    // CSP and run at an opaque origin (see WidgetFrame).
+    "frame-src 'self'",
     "base-uri 'none'",
     "form-action 'none'",
     "frame-ancestors 'none'"

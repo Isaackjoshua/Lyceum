@@ -7,6 +7,7 @@ import { readSettings } from '../db/queries/settings.js'
 import { runSimple } from '../harness/anthropicClient.js'
 import { MODES } from '../harness/modes.js'
 import { hasApiKey } from '../security/keyVault.js'
+import { spendStatus } from './usage.js'
 import { savePdf, slugify } from '../pdf/export.js'
 import type { PdfSection } from '../pdf/render.js'
 
@@ -16,7 +17,10 @@ async function generateSummary(
   objectives: string[],
   notes: { title: string; content: string }[]
 ): Promise<string | null> {
+  // Export must keep working when generation is unavailable — a study guide
+  // without its summary is far better than a failed export.
   if (!hasApiKey()) return null
+  if (spendStatus().blocked) return null
 
   const mode = MODES.moduleSummary
   const noteBlock =

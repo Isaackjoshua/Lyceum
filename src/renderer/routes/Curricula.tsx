@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { BookOpen, Plus } from 'lucide-react'
+import { Archive, BookOpen, Plus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { useCurriculumStore } from '@/stores/curriculumStore'
@@ -8,7 +8,7 @@ import { useSettingsStore } from '@/stores/settingsStore'
 
 export function CurriculaRoute(): JSX.Element {
   const navigate = useNavigate()
-  const { list, refresh, loading } = useCurriculumStore()
+  const { list, refresh, loading, showArchived, setShowArchived } = useCurriculumStore()
   const keyStatus = useSettingsStore((s) => s.keyStatus)
   const hasKey = keyStatus?.present ?? false
 
@@ -16,7 +16,7 @@ export function CurriculaRoute(): JSX.Element {
     void refresh()
   }, [refresh])
 
-  if (!loading && list.length === 0) {
+  if (!loading && list.length === 0 && !showArchived) {
     return (
       <div className="flex h-full items-center justify-center px-8">
         <div className="max-w-md text-center">
@@ -54,9 +54,19 @@ export function CurriculaRoute(): JSX.Element {
             {list.length} active course{list.length === 1 ? '' : 's'} of study
           </p>
         </div>
-        <Button onClick={() => navigate('/new')} disabled={!hasKey}>
-          <Plus className="h-4 w-4" /> New
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant={showArchived ? 'secondary' : 'ghost'}
+            size="sm"
+            onClick={() => void setShowArchived(!showArchived)}
+          >
+            <Archive className="h-4 w-4" />
+            {showArchived ? 'Hiding none' : 'Show archived'}
+          </Button>
+          <Button onClick={() => navigate('/new')} disabled={!hasKey}>
+            <Plus className="h-4 w-4" /> New
+          </Button>
+        </div>
       </header>
 
       <div className="space-y-3">
@@ -71,6 +81,11 @@ export function CurriculaRoute(): JSX.Element {
                 <div className="flex items-baseline justify-between gap-4">
                   <h2 className="font-serif text-base font-semibold">
                     {curriculum.title}
+                    {curriculum.status === 'archived' && (
+                      <span className="ml-2 rounded bg-secondary px-1.5 py-0.5 align-middle text-[10px] font-normal uppercase tracking-wide text-muted-foreground">
+                        archived
+                      </span>
+                    )}
                   </h2>
                   <span className="shrink-0 text-xs text-muted-foreground">
                     {curriculum.completedModules}/{curriculum.moduleCount} modules

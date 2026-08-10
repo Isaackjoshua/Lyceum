@@ -174,13 +174,25 @@ export function markModuleStarted(moduleId: number): void {
 
 /* ---------------------------------------------------------------- reads */
 
-export function listCurricula(): CurriculumSummary[] {
+export function setCurriculumArchived(curriculumId: number, archived: boolean): void {
+  getDatabase()
+    .prepare('UPDATE curricula SET status = ?, updated_at = ? WHERE id = ?')
+    .run(archived ? 'archived' : 'active', Date.now(), curriculumId)
+}
+
+export function listCurricula(includeArchived = false): CurriculumSummary[] {
   const db = getDatabase()
-  const rows = db
-    .prepare<[], CurriculumRow>(
-      "SELECT * FROM curricula WHERE status = 'active' ORDER BY updated_at DESC"
-    )
-    .all()
+  const rows = includeArchived
+    ? db
+        .prepare<[], CurriculumRow>(
+          "SELECT * FROM curricula ORDER BY status = 'archived', updated_at DESC"
+        )
+        .all()
+    : db
+        .prepare<[], CurriculumRow>(
+          "SELECT * FROM curricula WHERE status = 'active' ORDER BY updated_at DESC"
+        )
+        .all()
 
   const moduleCounts = db.prepare<[number], { total: number; done: number }>(
     `SELECT COUNT(*) AS total,

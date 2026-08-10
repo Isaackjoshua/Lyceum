@@ -74,6 +74,8 @@ export interface Session {
   startedAt: number
   endedAt: number | null
   stateSummary: string | null
+  /** Messages with an id at or below this are already in `stateSummary`. */
+  foldedThroughId: number
 }
 
 export interface Message {
@@ -198,6 +200,28 @@ export interface UsageTotals {
   inputTokens: number
   outputTokens: number
   estimatedUsd: number
+}
+
+/** Where the learner stands against their monthly spend cap. */
+export interface SpendStatus {
+  spentUsd: number
+  /** 0 when no cap is set. */
+  capUsd: number
+  /** spent / cap, 0 when uncapped. */
+  fraction: number
+  warn: boolean
+  /** True only when the learner asked for blocking AND the cap is reached. */
+  blocked: boolean
+}
+
+export interface BackupResult {
+  saved: boolean
+  path: string | null
+}
+
+export interface RestoreResult {
+  restored: boolean
+  message: string
 }
 
 /* ------------------------------------------------------------------ *
@@ -491,6 +515,15 @@ export const IPC = {
 
   dashboardStats: 'dashboard:stats',
 
+  usageSpendStatus: 'usage:spendStatus',
+  usageSession: 'usage:session',
+
+  dataBackup: 'data:backup',
+  dataRestore: 'data:restore',
+  dataDeleteAll: 'data:deleteAll',
+
+  curriculumArchive: 'curriculum:archive',
+
   /** main -> renderer, one-way. */
   streamEvent: 'stream:event'
 } as const
@@ -539,9 +572,10 @@ export interface LyceumApi {
       requestId: string
     ) => Promise<IpcResult<ArchitectTurnResult>>
     save: (proposal: CurriculumProposal) => Promise<IpcResult<CurriculumDetail>>
-    list: () => Promise<IpcResult<CurriculumSummary[]>>
+    list: (includeArchived?: boolean) => Promise<IpcResult<CurriculumSummary[]>>
     get: (curriculumId: number) => Promise<IpcResult<CurriculumDetail>>
     delete: (curriculumId: number) => Promise<IpcResult<null>>
+    archive: (curriculumId: number, archived: boolean) => Promise<IpcResult<null>>
   }
   module: {
     setStatus: (moduleId: number, status: ModuleStatus) => Promise<IpcResult<Module>>
@@ -588,5 +622,14 @@ export interface LyceumApi {
   }
   dashboard: {
     stats: () => Promise<IpcResult<DashboardStats>>
+  }
+  usage: {
+    spendStatus: () => Promise<IpcResult<SpendStatus>>
+    session: (sessionId: number) => Promise<IpcResult<UsageTotals>>
+  }
+  data: {
+    backup: () => Promise<IpcResult<BackupResult>>
+    restore: () => Promise<IpcResult<RestoreResult>>
+    deleteAll: () => Promise<IpcResult<boolean>>
   }
 }

@@ -176,10 +176,77 @@ and `tuningFor()` only sends what the selected model accepts. Sampling parameter
 ### Context budget
 
 `planBudget` keeps the most recent turns verbatim and folds the rest into the
-session's `state_summary` via the cheap model. Two rules matter: the fold runs
-*after* the turn has been delivered, so the learner never waits on background
-bookkeeping; and `minKeep` recent messages survive even when they exceed the
-budget, because dropping the immediate exchange would break the conversation.
+session's `state_summary` via the cheap model.
+
+Three rules matter:
+
+- **The fold runs after the turn is delivered**, so the learner never waits on
+  background bookkeeping.
+- **`minKeep` recent messages survive** even when they exceed the budget,
+  because dropping the immediate exchange would break the conversation.
+- **A watermark (`sessions.folded_through_id`) makes folding idempotent.** Only
+  messages newer than the watermark are ever summarised, and the watermark
+  advances only in the same write as the summary that covers them — so a failed
+  fold retries rather than silently losing turns.
+
+That last one was a real defect through Phase 2: the budget was re-planned over
+the entire transcript each turn, so already-folded messages were folded *again*
+every subsequent turn. That burned tokens on the same text repeatedly and let
+the summary drift, since each pass rewrote the previous pass's output.
+
+### Cost tracking and the spend cap
+
+Every billable call writes to `usage_log` with its mode, model, token counts and
+an estimated cost derived from `config/models.ts`. `services/usage.ts` rolls
+that up per session and per calendar month.
+
+The cap deliberately defaults to **warn, not block**. Warning fires at 80%;
+blocking only happens if the learner explicitly asked for it, because refusing
+to answer mid-explanation is a worse failure than a slightly larger bill. Where
+blocking does apply, it is checked *before* the request rather than partway
+through — `submitQuiz` checks once up front rather than letting a cap trip
+between questions and score the remainder zero. PDF export degrades instead:
+a study guide without its generated summary still exports.
+
+### Backup and restore
+
+`VACUUM INTO` writes the backup rather than copying the file. The database runs
+in WAL mode, so a plain file copy can miss committed pages still sitting in the
+`-wal` sidecar; `VACUUM INTO` produces a single, self-contained, compacted
+snapshot. (The verification harness asserts exactly this: a summary written
+moments earlier is present in the backup.)
+
+Restore is deliberately cautious:
+
+1. The candidate is opened read-only and checked — is it a database, is it a
+   *Lyceum* database, and is its schema version one this build understands? A
+   newer-schema backup is refused rather than half-migrated.
+2. Only then is the live database closed, **copied aside** to
+   `lyceum.replaced.sqlite`, and replaced. Stale `-wal`/`-shm` sidecars are
+   removed, since they belong to the old database and would corrupt the new one.
+3. The app quits. Every prepared statement still points at the replaced file, so
+   restarting is the only honest option.
+
+### Sandboxed interactive widgets
+
+`render_visual` with `format: "html"` runs in an iframe whose isolation rests on
+three independent things:
+
+| Layer | What it stops |
+|---|---|
+| `sandbox="allow-scripts"` **without** `allow-same-origin` | Opaque origin: no `window.parent`, no app storage, no same-origin anything |
+| A CSP inside the document (`default-src 'none'`, inline script/style only) | All network access — fetch, XHR, websockets, remote images and fonts |
+| The app's own top-level CSP | Remote origins generally |
+
+**Never add `allow-same-origin` alongside `allow-scripts`** — together they let
+the frame remove its own sandbox attribute.
+
+Height is negotiated over `postMessage`, and the host authenticates messages by
+comparing `event.source` against the frame's `contentWindow`. It cannot use
+`event.origin`, which is the string `"null"` for an opaque origin and therefore
+proves nothing.
+
+### PDF export
 
 ### Mastery
 
@@ -298,5 +365,33 @@ run as throwaway harnesses at their phase's acceptance:
   counts, streak and weak-area detection. This is what caught the weak-area
   filter keying on module status instead of evidence.
 
+- **Phase 3, watermark/cap/backup** — fold watermark advancing monotonically and
+  removing folded turns from the window, the cap warning at 80% without blocking
+  and blocking only when asked, `VACUUM INTO` capturing WAL-resident writes, and
+  restore refusing a non-database, a foreign database, and a newer-schema backup.
+- **Phase 3, widget isolation** — a seeded widget probed its own sandbox and
+  reported the result on screen: `parent.document`, `parent.localStorage`, its
+  own `localStorage`, the `window.api` bridge, `fetch`, `XHR` and remote images
+  were all blocked. The first version of that probe was wrong (it checked
+  `fetch` synchronously, which always reads as reachable) — worth remembering
+  that a green result is only as good as the probe behind it.
+
 The live teaching loop itself — streaming, the tool loop, the architect's
 diagnostic — requires a funded API key and is exercised manually.
+
+---
+
+## Swapping the model backend
+
+The harness is the only thing that talks to Anthropic, and it does so through a
+narrow surface in `harness/anthropicClient.ts`: `runTurn` (streaming plus the
+tool loop) and `runSimple` (one-shot). Everything above it — modes, prompts,
+context assembly, tool execution, the services — is provider-agnostic already.
+
+Pointing Lyceum at a local model would mean providing another implementation of
+those two functions, plus capability flags in `config/models.ts` so per-model
+tuning (`effort`, adaptive thinking) is gated correctly, and a cost model that
+reports zero. The pieces that would need real thought are tool use, which local
+runtimes support unevenly, and streaming deltas. This is deliberately **not**
+implemented: an unused abstraction layer is a liability, and the shape of the
+seam is clear enough to add when there is a concrete backend to target.

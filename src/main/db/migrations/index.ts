@@ -173,5 +173,20 @@ export const migrations: Migration[] = [
         CREATE INDEX idx_usage_session ON usage_log(session_id);
       `)
     }
+  },
+  {
+    version: 2,
+    name: 'fold_watermark',
+    up: (db) => {
+      // High-water mark for context summarization: every message with an id at
+      // or below this has already been folded into `state_summary`.
+      //
+      // Without it, each turn re-plans the budget over the whole transcript and
+      // re-summarises turns that were already folded — burning tokens and
+      // letting the summary drift as it is rebuilt from its own output.
+      db.exec(`
+        ALTER TABLE sessions ADD COLUMN folded_through_id INTEGER NOT NULL DEFAULT 0;
+      `)
+    }
   }
 ]

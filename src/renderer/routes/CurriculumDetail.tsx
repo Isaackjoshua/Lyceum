@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import {
+  Archive,
   ArrowLeft,
+  ArchiveRestore,
   Check,
   Circle,
   CircleDot,
@@ -26,8 +28,16 @@ const STATUS_ICON: Record<ModuleStatus, JSX.Element> = {
 export function CurriculumDetailRoute(): JSX.Element {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
-  const { detail, open, loading, error, setModuleStatus, setObjectiveStatus, remove } =
-    useCurriculumStore()
+  const {
+    detail,
+    open,
+    loading,
+    error,
+    setModuleStatus,
+    setObjectiveStatus,
+    remove,
+    archive
+  } = useCurriculumStore()
   const [exporting, setExporting] = useState<number | null>(null)
   const [exportNote, setExportNote] = useState<string | null>(null)
   const [makingCards, setMakingCards] = useState<number | null>(null)
@@ -112,6 +122,25 @@ export function CurriculumDetailRoute(): JSX.Element {
             met · {detail.learnerLevel} level
           </p>
         </div>
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label={
+            detail.status === 'archived' ? 'Unarchive curriculum' : 'Archive curriculum'
+          }
+          title={
+            detail.status === 'archived'
+              ? 'Bring this back into the active list'
+              : 'Hide this from the active list without deleting it'
+          }
+          onClick={() => void archive(detail.id, detail.status !== 'archived')}
+        >
+          {detail.status === 'archived' ? (
+            <ArchiveRestore className="h-4 w-4" />
+          ) : (
+            <Archive className="h-4 w-4" />
+          )}
+        </Button>
         <Button
           variant="ghost"
           size="icon"

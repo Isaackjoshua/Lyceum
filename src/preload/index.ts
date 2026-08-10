@@ -32,9 +32,11 @@ const api: LyceumApi = {
     architectTurn: (messages, requestId) =>
       invoke(IPC.curriculumArchitectTurn, messages, requestId),
     save: (proposal) => invoke(IPC.curriculumSave, proposal),
-    list: () => invoke(IPC.curriculumList),
+    list: (includeArchived) => invoke(IPC.curriculumList, includeArchived ?? false),
     get: (curriculumId) => invoke(IPC.curriculumGet, curriculumId),
-    delete: (curriculumId) => invoke(IPC.curriculumDelete, curriculumId)
+    delete: (curriculumId) => invoke(IPC.curriculumDelete, curriculumId),
+    archive: (curriculumId, archived) =>
+      invoke(IPC.curriculumArchive, curriculumId, archived)
   },
   module: {
     setStatus: (moduleId, status) => invoke(IPC.moduleSetStatus, moduleId, status)
@@ -84,6 +86,15 @@ const api: LyceumApi = {
   },
   dashboard: {
     stats: () => invoke(IPC.dashboardStats)
+  },
+  usage: {
+    spendStatus: () => invoke(IPC.usageSpendStatus),
+    session: (sessionId) => invoke(IPC.usageSession, sessionId)
+  },
+  data: {
+    backup: () => invoke(IPC.dataBackup),
+    restore: () => invoke(IPC.dataRestore),
+    deleteAll: () => invoke(IPC.dataDeleteAll)
   }
 }
 

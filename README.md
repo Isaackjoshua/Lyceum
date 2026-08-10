@@ -22,7 +22,9 @@ machine except in calls to Anthropic, billed to your own account.
 | **0** | Scaffold, secure window, typed IPC, SQLite + migrations, key vault, Settings | ✅ Done |
 | **1** | Curriculum architect, streaming tutor chat, inline notes, per-module PDF | ✅ Done |
 | **2** | Quizzes + mastery, FSRS flashcard review, inline visuals, dashboard | ✅ Done |
-| 3 | Sandboxed widgets, context summarization, cost caps, backup/restore | Next |
+| **3** | Sandboxed widgets, context summarization, cost caps, backup/restore | ✅ Done |
+
+All four phases are complete.
 
 ### What works today
 
@@ -52,6 +54,18 @@ machine except in calls to Anthropic, billed to your own account.
   quiz scores and the cards you keep forgetting, not from time spent.
 - **Diagrams inline.** When a concept has shape, the tutor draws it. Mermaid and
   SVG render in the transcript, sanitised before they touch the DOM.
+
+- **Interact, not just look.** When moving something is the only way to see the
+  point, the tutor can build a small widget. It runs in a sandboxed frame with
+  no access to the app and no network at all.
+- **Learn for as long as you like.** Long sessions fold older turns into a
+  running summary, so context stays bounded and continuity is preserved. Each
+  turn is summarised exactly once.
+- **Know what it costs.** Per-session and per-month spend are shown from your
+  own token usage. Set a monthly cap to be warned at 80% — and optionally
+  blocked at 100%, though the default is to warn and keep teaching.
+- **Own your data.** Back up to a single self-contained file, restore from one,
+  archive curricula you are done with, or delete everything.
 
 Mastery is deliberately evidence-based: it stays at zero until you take a
 checkpoint or review some cards. Reading does not move it.

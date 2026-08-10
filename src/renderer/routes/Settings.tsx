@@ -1,6 +1,16 @@
 import { useEffect, useState } from 'react'
-import { AlertTriangle, Check, Eye, EyeOff, KeyRound, Loader2, Trash2 } from 'lucide-react'
-import type { DbInfo } from '@shared/types'
+import {
+  AlertTriangle,
+  Check,
+  DatabaseBackup,
+  Eye,
+  EyeOff,
+  KeyRound,
+  Loader2,
+  Trash2,
+  Upload
+} from 'lucide-react'
+import type { DbInfo, SpendStatus } from '@shared/types'
 import { MODELS, TUTOR_MODEL_CHOICES } from '@config/models'
 import { Button } from '@/components/ui/button'
 import {
@@ -20,6 +30,7 @@ import {
   SelectValue
 } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
+import { cn, formatUsd } from '@/lib/utils'
 import { useSettingsStore } from '@/stores/settingsStore'
 
 type Feedback = { kind: 'ok' | 'error'; text: string } | null
@@ -33,12 +44,20 @@ export function SettingsRoute(): JSX.Element {
   const [testing, setTesting] = useState(false)
   const [keyFeedback, setKeyFeedback] = useState<Feedback>(null)
   const [dbInfo, setDbInfo] = useState<DbInfo | null>(null)
+  const [spend, setSpend] = useState<SpendStatus | null>(null)
+  const [dataBusy, setDataBusy] = useState<'backup' | 'restore' | 'delete' | null>(null)
+  const [dataNote, setDataNote] = useState<Feedback>(null)
 
-  useEffect(() => {
+  const refreshData = (): void => {
     void window.api.db.info().then((r) => {
       if (r.ok) setDbInfo(r.data)
     })
-  }, [keyStatus])
+    void window.api.usage.spendStatus().then((r) => {
+      if (r.ok) setSpend(r.data)
+    })
+  }
+
+  useEffect(refreshData, [keyStatus])
 
   if (!settings) {
     return (
@@ -83,6 +102,43 @@ export function SettingsRoute(): JSX.Element {
         ? { kind: 'ok', text: result.data.message }
         : { kind: 'error', text: result.error }
     )
+  }
+
+  const backup = async (): Promise<void> => {
+    setDataBusy('backup')
+    setDataNote(null)
+    const result = await window.api.data.backup()
+    setDataBusy(null)
+    if (!result.ok) setDataNote({ kind: 'error', text: result.error })
+    else if (result.data.saved) {
+      setDataNote({ kind: 'ok', text: `Backed up to ${result.data.path}` })
+    }
+  }
+
+  const restore = async (): Promise<void> => {
+    setDataBusy('restore')
+    setDataNote(null)
+    const result = await window.api.data.restore()
+    setDataBusy(null)
+    if (!result.ok) setDataNote({ kind: 'error', text: result.error })
+    else {
+      setDataNote({
+        kind: result.data.restored ? 'ok' : 'error',
+        text: result.data.message
+      })
+    }
+  }
+
+  const deleteAll = async (): Promise<void> => {
+    setDataBusy('delete')
+    setDataNote(null)
+    const result = await window.api.data.deleteAll()
+    setDataBusy(null)
+    if (!result.ok) setDataNote({ kind: 'error', text: result.error })
+    else if (result.data) {
+      setDataNote({ kind: 'ok', text: 'All learning data deleted.' })
+      refreshData()
+    }
   }
 
   const encryptionUnavailable = keyStatus !== null && !keyStatus.encryptionAvailable
@@ -278,6 +334,44 @@ export function SettingsRoute(): JSX.Element {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
+          {spend && (
+            <div>
+              <div className="flex items-baseline justify-between">
+                <span className="text-sm">This month</span>
+                <span className="font-serif text-lg font-semibold tabular-nums">
+                  {formatUsd(spend.spentUsd)}
+                  {spend.capUsd > 0 && (
+                    <span className="ml-1 text-xs font-normal text-muted-foreground">
+                      of {formatUsd(spend.capUsd)}
+                    </span>
+                  )}
+                </span>
+              </div>
+              {spend.capUsd > 0 && (
+                <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-secondary">
+                  <div
+                    className={cn(
+                      'h-full rounded-full transition-all',
+                      spend.fraction >= 1
+                        ? 'bg-destructive'
+                        : spend.warn
+                          ? 'bg-accent'
+                          : 'bg-success'
+                    )}
+                    style={{ width: `${Math.min(100, spend.fraction * 100)}%` }}
+                  />
+                </div>
+              )}
+              {spend.warn && (
+                <p className="mt-2 text-xs text-accent">
+                  {spend.blocked
+                    ? 'Cap reached — generation is blocked until you raise it or switch blocking off.'
+                    : `${Math.round(spend.fraction * 100)}% of your cap used.`}
+                </p>
+              )}
+            </div>
+          )}
+
           <div className="space-y-2">
             <Label htmlFor="cap">Monthly spend cap (USD, 0 = off)</Label>
             <Input
@@ -369,6 +463,51 @@ export function SettingsRoute(): JSX.Element {
             </dl>
           ) : (
             <p className="text-sm text-muted-foreground">Reading database…</p>
+          )}
+
+          <div className="mt-5 flex flex-wrap gap-2">
+            <Button variant="outline" onClick={() => void backup()} disabled={dataBusy !== null}>
+              {dataBusy === 'backup' ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <DatabaseBackup className="h-4 w-4" />
+              )}
+              Back up
+            </Button>
+            <Button variant="outline" onClick={() => void restore()} disabled={dataBusy !== null}>
+              {dataBusy === 'restore' ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Upload className="h-4 w-4" />
+              )}
+              Restore
+            </Button>
+            <Button
+              variant="ghost"
+              className="text-destructive hover:bg-destructive/10"
+              onClick={() => void deleteAll()}
+              disabled={dataBusy !== null}
+            >
+              <Trash2 className="h-4 w-4" /> Delete all data
+            </Button>
+          </div>
+
+          <p className="mt-2 text-xs text-muted-foreground">
+            A backup is a single self-contained file. Restoring replaces everything
+            and quits the app; your current database is kept alongside it as
+            lyceum.replaced.sqlite.
+          </p>
+
+          {dataNote && (
+            <p
+              role="status"
+              className={cn(
+                'mt-3 break-all text-sm',
+                dataNote.kind === 'ok' ? 'text-success' : 'text-destructive'
+              )}
+            >
+              {dataNote.text}
+            </p>
           )}
         </CardContent>
       </Card>

@@ -16,8 +16,12 @@ import type {
   QuizDetail,
   QuizResult,
   ReviewPreview,
+  BackupResult,
+  RestoreResult,
   ReviewQueue,
   SessionDetail,
+  SpendStatus,
+  UsageTotals,
   Settings,
   TestConnectionResult,
   TurnEvent
@@ -29,6 +33,7 @@ import {
   getCurriculumDetail,
   listCurricula,
   saveCurriculum,
+  setCurriculumArchived,
   setModuleStatus,
   setObjectiveStatus
 } from '../db/queries/curriculum.js'
@@ -51,6 +56,8 @@ import {
 } from '../db/queries/flashcards.js'
 import { dashboardStats } from '../db/queries/stats.js'
 import { previewIntervals } from '../services/srs.js'
+import { sessionUsage, spendStatus } from '../services/usage.js'
+import { backupDatabase, deleteAllData, restoreDatabase } from '../services/backup.js'
 import {
   requireInt,
   requireOptionalInt,
@@ -165,7 +172,14 @@ export function registerIpcHandlers(): void {
     return getCurriculumDetail(id)
   })
 
-  handle<CurriculumSummary[]>(IPC.curriculumList, () => listCurricula())
+  handle<CurriculumSummary[]>(IPC.curriculumList, (includeArchived) =>
+    listCurricula(Boolean(includeArchived))
+  )
+
+  handle<null>(IPC.curriculumArchive, (id, archived) => {
+    setCurriculumArchived(requireInt(id, 'curriculumId'), Boolean(archived))
+    return null
+  })
 
   handle<CurriculumDetail>(IPC.curriculumGet, (id) =>
     getCurriculumDetail(requireInt(id, 'curriculumId'))
@@ -310,6 +324,55 @@ export function registerIpcHandlers(): void {
   /* ------------------------------------------------------- dashboard */
 
   handle<DashboardStats>(IPC.dashboardStats, () => dashboardStats())
+
+  /* ----------------------------------------------------------- usage */
+
+  handle<SpendStatus>(IPC.usageSpendStatus, () => spendStatus())
+
+  handle<UsageTotals>(IPC.usageSession, (sessionId) =>
+    sessionUsage(requireInt(sessionId, 'sessionId'))
+  )
+
+  /* ------------------------------------------------------------ data */
+
+  ipcMain.handle(IPC.dataBackup, async (event): Promise<IpcResult<BackupResult>> => {
+    try {
+      const parent = BrowserWindow.fromWebContents(event.sender) ?? undefined
+      return { ok: true, data: await backupDatabase(parent) }
+    } catch (err) {
+      const message = describeApiError(err)
+      console.error(`[ipc] backup failed: ${message}`)
+      return { ok: false, error: message }
+    }
+  })
+
+  ipcMain.handle(IPC.dataRestore, async (event): Promise<IpcResult<RestoreResult>> => {
+    try {
+      const parent = BrowserWindow.fromWebContents(event.sender) ?? undefined
+      const result = await restoreDatabase(parent)
+      if (result.restored) {
+        // Every prepared statement still points at the replaced file, so the
+        // only safe next step is a clean restart.
+        setTimeout(() => app.quit(), 1200)
+      }
+      return { ok: true, data: result }
+    } catch (err) {
+      const message = describeApiError(err)
+      console.error(`[ipc] restore failed: ${message}`)
+      return { ok: false, error: message }
+    }
+  })
+
+  ipcMain.handle(IPC.dataDeleteAll, async (event): Promise<IpcResult<boolean>> => {
+    try {
+      const parent = BrowserWindow.fromWebContents(event.sender) ?? undefined
+      return { ok: true, data: await deleteAllData(parent) }
+    } catch (err) {
+      const message = describeApiError(err)
+      console.error(`[ipc] deleteAll failed: ${message}`)
+      return { ok: false, error: message }
+    }
+  })
 
   /* ---------------------------------------------------------- export */
 

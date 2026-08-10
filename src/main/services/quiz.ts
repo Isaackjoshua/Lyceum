@@ -19,6 +19,7 @@ import { getDatabase } from '../db/index.js'
 import { runSimple, runTurn } from '../harness/anthropicClient.js'
 import { MODES } from '../harness/modes.js'
 import { GENERATE_QUIZ_TOOL } from '../harness/toolRegistry.js'
+import { assertWithinCap } from './usage.js'
 
 const QUESTION_TYPES: QuestionType[] = ['mcq', 'short', 'code']
 
@@ -105,6 +106,8 @@ export async function generateQuiz(
   moduleId: number,
   focus?: string | null
 ): Promise<QuizDetail> {
+  assertWithinCap()
+
   const { module, objectives, curriculum } = getModuleWithObjectives(moduleId)
   const mode = MODES.assessor
 
@@ -259,6 +262,11 @@ export async function submitQuiz(
   responses: Record<string, string>
 ): Promise<QuizResult> {
   const detail = getQuizDetail(quizId)
+
+  // Check once up front: a cap tripping midway would score the remaining
+  // written answers zero, which is a far worse outcome than refusing early.
+  const needsGrader = detail.questions.some((q) => q.type !== 'mcq')
+  if (needsGrader) assertWithinCap()
 
   const answers = await Promise.all(
     detail.questions.map((question) => {

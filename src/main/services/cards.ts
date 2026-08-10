@@ -7,6 +7,7 @@ import { recomputeMastery } from '../db/queries/quiz.js'
 import { runTurn } from '../harness/anthropicClient.js'
 import { MODES } from '../harness/modes.js'
 import { GENERATE_FLASHCARDS_TOOL } from '../harness/toolRegistry.js'
+import { assertWithinCap } from './usage.js'
 
 interface ParsedCard {
   front: string
@@ -49,6 +50,8 @@ export function parseCards(
  * and regenerates gets three new cards rather than a duplicated deck.
  */
 export async function generateCards(moduleId: number): Promise<CardGenerationResult> {
+  assertWithinCap()
+
   const { module } = getModuleWithObjectives(moduleId)
   const notes = listNotes({ moduleId })
 

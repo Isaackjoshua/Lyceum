@@ -161,10 +161,16 @@ const renderVisual: ToolEntry = {
     input_schema: {
       type: 'object',
       properties: {
-        format: { type: 'string', enum: ['svg', 'mermaid'] },
+        format: {
+          type: 'string',
+          enum: ['svg', 'mermaid', 'html'],
+          description:
+            'Use mermaid for graphs and flows, svg for bespoke static figures, and html only when the learner needs to manipulate something to see the point.'
+        },
         code: {
           type: 'string',
-          description: 'Valid SVG markup, or Mermaid diagram source.'
+          description:
+            'Valid SVG markup, Mermaid source, or a self-contained HTML fragment. HTML runs sandboxed with no network access: inline <style> and <script> only, no external resources.'
         },
         caption: { type: 'string', description: 'One short line naming what is shown.' }
       },
@@ -174,9 +180,9 @@ const renderVisual: ToolEntry = {
   execute: (input) => {
     const format = str(input, 'format')
     const code = str(input, 'code')
-    if (format !== 'svg' && format !== 'mermaid') {
+    if (format !== 'svg' && format !== 'mermaid' && format !== 'html') {
       return {
-        result: `Error: format must be "svg" or "mermaid".`,
+        result: `Error: format must be "svg", "mermaid" or "html".`,
         hint: null,
         isError: true
       }

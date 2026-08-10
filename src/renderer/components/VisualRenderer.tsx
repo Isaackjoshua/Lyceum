@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState } from 'react'
 import { AlertTriangle } from 'lucide-react'
 import type { VisualPayload } from '@shared/types'
 import { sanitiseSvg } from '@/lib/sanitiseSvg'
+import { WidgetFrame } from '@/components/WidgetFrame'
 
 /**
  * Renders a tutor-authored diagram inline.
@@ -13,6 +14,9 @@ import { sanitiseSvg } from '@/lib/sanitiseSvg'
  *   - Mermaid runs with securityLevel 'strict' (its own HTML sanitiser, and
  *     click/script directives disabled), and its SVG output is sanitised again
  *     on the way in.
+ *   - Interactive HTML runs in a sandboxed, opaque-origin iframe with its own
+ *     CSP — see WidgetFrame. It is never sanitised and injected inline,
+ *     because interactivity needs script, and script needs isolation.
  * The app's CSP already forbids remote loads, so this is defence in depth
  * rather than the only barrier.
  */
@@ -43,11 +47,13 @@ async function loadMermaid(dark: boolean): Promise<typeof import('mermaid').defa
 
 export function VisualRenderer({ visual }: { visual: VisualPayload }): JSX.Element {
   const [html, setHtml] = useState<string | null>(null)
+  const isWidget = visual.format === 'html'
   const [error, setError] = useState<string | null>(null)
   const idBase = useId().replace(/[^a-zA-Z0-9]/g, '')
   const cancelled = useRef(false)
 
   useEffect(() => {
+    if (visual.format === 'html') return
     cancelled.current = false
 
     const run = async (): Promise<void> => {
@@ -68,8 +74,7 @@ export function VisualRenderer({ visual }: { visual: VisualPayload }): JSX.Eleme
           return
         }
 
-        // 'html' visuals need the sandboxed iframe that arrives in Phase 3.
-        throw new Error('This diagram format is not supported yet.')
+        throw new Error(`Unsupported diagram format: ${String(visual.format)}`)
       } catch (err) {
         if (!cancelled.current) setError((err as Error).message)
       }
@@ -88,6 +93,19 @@ export function VisualRenderer({ visual }: { visual: VisualPayload }): JSX.Eleme
           <AlertTriangle className="h-3.5 w-3.5" />
           The tutor sent a diagram that could not be drawn ({error})
         </figcaption>
+      </figure>
+    )
+  }
+
+  if (isWidget) {
+    return (
+      <figure className="my-4 overflow-hidden rounded-md border bg-card">
+        <WidgetFrame code={visual.code} />
+        {visual.caption && (
+          <figcaption className="border-t px-4 py-2 text-center text-xs text-muted-foreground">
+            {visual.caption}
+          </figcaption>
+        )}
       </figure>
     )
   }

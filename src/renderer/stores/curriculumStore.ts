@@ -11,6 +11,9 @@ interface CurriculumState {
   detail: CurriculumDetail | null
   loading: boolean
   error: string | null
+  showArchived: boolean
+  setShowArchived: (show: boolean) => Promise<void>
+  archive: (curriculumId: number, archived: boolean) => Promise<void>
   refresh: () => Promise<void>
   open: (curriculumId: number) => Promise<void>
   remove: (curriculumId: number) => Promise<void>
@@ -23,10 +26,29 @@ export const useCurriculumStore = create<CurriculumState>((set, get) => ({
   detail: null,
   loading: false,
   error: null,
+  showArchived: false,
+
+  setShowArchived: async (show) => {
+    set({ showArchived: show })
+    await get().refresh()
+  },
+
+  archive: async (curriculumId, archived) => {
+    const result = await window.api.curriculum.archive(curriculumId, archived)
+    if (!result.ok) {
+      set({ error: result.error })
+      return
+    }
+    const detail = get().detail
+    if (detail?.id === curriculumId) {
+      set({ detail: { ...detail, status: archived ? 'archived' : 'active' } })
+    }
+    await get().refresh()
+  },
 
   refresh: async () => {
     set({ loading: true })
-    const result = await window.api.curriculum.list()
+    const result = await window.api.curriculum.list(get().showArchived)
     set(
       result.ok
         ? { list: result.data, loading: false, error: null }

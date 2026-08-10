@@ -7,6 +7,7 @@ interface SessionRow {
   started_at: number
   ended_at: number | null
   state_summary: string | null
+  folded_through_id: number
 }
 
 interface MessageRow {
@@ -23,7 +24,8 @@ const toSession = (r: SessionRow): Session => ({
   moduleId: r.module_id,
   startedAt: r.started_at,
   endedAt: r.ended_at,
-  stateSummary: r.state_summary
+  stateSummary: r.state_summary,
+  foldedThroughId: r.folded_through_id ?? 0
 })
 
 const toMessage = (r: MessageRow): Message => ({
@@ -62,7 +64,14 @@ export function startSession(moduleId: number): Session {
     JSON.stringify({ sessionId: id, moduleId })
   )
 
-  return { id, moduleId, startedAt: now, endedAt: null, stateSummary: null }
+  return {
+    id,
+    moduleId,
+    startedAt: now,
+    endedAt: null,
+    stateSummary: null,
+    foldedThroughId: 0
+  }
 }
 
 export function getSession(sessionId: number): Session {
@@ -79,6 +88,16 @@ export function getMessages(sessionId: number): Message[] {
       'SELECT * FROM messages WHERE session_id = ? ORDER BY id'
     )
     .all(sessionId)
+    .map(toMessage)
+}
+
+/** Messages not yet folded into the running summary. */
+export function getUnfoldedMessages(sessionId: number, foldedThroughId: number): Message[] {
+  return getDatabase()
+    .prepare<[number, number], MessageRow>(
+      'SELECT * FROM messages WHERE session_id = ? AND id > ? ORDER BY id'
+    )
+    .all(sessionId, foldedThroughId)
     .map(toMessage)
 }
 
@@ -100,10 +119,21 @@ export function appendMessage(
   return { id, sessionId, role, content, meta, createdAt: now }
 }
 
-export function updateStateSummary(sessionId: number, summary: string): void {
+/**
+ * Records a completed fold: the new summary plus the watermark it covers.
+ * Written together so a crash cannot advance the watermark past content that
+ * never made it into the summary.
+ */
+export function recordFold(
+  sessionId: number,
+  summary: string,
+  foldedThroughId: number
+): void {
   getDatabase()
-    .prepare('UPDATE sessions SET state_summary = ? WHERE id = ?')
-    .run(summary, sessionId)
+    .prepare(
+      'UPDATE sessions SET state_summary = ?, folded_through_id = ? WHERE id = ?'
+    )
+    .run(summary, foldedThroughId, sessionId)
 }
 
 export function endSession(sessionId: number): void {

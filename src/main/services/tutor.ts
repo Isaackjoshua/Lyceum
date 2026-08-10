@@ -9,9 +9,10 @@ import {
   appendMessage,
   getMessages,
   getSession,
+  getUnfoldedMessages,
   logUsage,
-  startSession,
-  updateStateSummary
+  recordFold,
+  startSession
 } from '../db/queries/session.js'
 import { readSettings } from '../db/queries/settings.js'
 import { runSimple, runTurn } from '../harness/anthropicClient.js'
@@ -19,6 +20,7 @@ import { estimateTokens } from '../harness/contextManager.js'
 import { MODES } from '../harness/modes.js'
 import { assembleTutorRequest } from '../harness/promptAssembler.js'
 import { toolDefinitions } from '../harness/toolRegistry.js'
+import { assertWithinCap } from './usage.js'
 
 /** Fraction of the model's context we spend on the verbatim transcript tail. */
 const TRANSCRIPT_BUDGET_TOKENS = 24_000
@@ -43,11 +45,16 @@ export function beginSession(moduleId: number): SessionDetail {
 /**
  * Folds transcript overflow into the running summary so long sessions stay
  * within budget without losing continuity. Uses the cheap model.
+ *
+ * The watermark is what makes this stable: only turns newer than
+ * `folded_through_id` are ever summarised, so a turn is folded exactly once.
+ * Folding the whole overflow every time would re-summarise its own output and
+ * let the summary drift.
  */
 async function foldOverflow(
   sessionId: number,
   existingSummary: string | null,
-  overflow: { role: string; content: string }[]
+  overflow: { id: number; role: string; content: string }[]
 ): Promise<void> {
   if (overflow.length === 0) return
 
@@ -63,7 +70,10 @@ async function foldOverflow(
     maxTokens: mode.maxTokens
   })
 
-  if (result.text) updateStateSummary(sessionId, result.text)
+  // Advance the watermark only alongside a summary that actually covers those
+  // turns; on a failure they stay unfolded and are retried next turn.
+  const highest = overflow[overflow.length - 1]!.id
+  if (result.text) recordFold(sessionId, result.text, highest)
 
   logUsage({
     sessionId,
@@ -90,6 +100,8 @@ export interface TutorTurnArgs {
 export async function runTutorTurn(args: TutorTurnArgs): Promise<void> {
   const { sessionId, requestId, emit } = args
 
+  assertWithinCap()
+
   const settings = readSettings()
   const model = settings.tutorModel
   const maxTokens = Math.min(
@@ -105,7 +117,9 @@ export async function runTutorTurn(args: TutorTurnArgs): Promise<void> {
   appendMessage(sessionId, 'user', args.text)
   markModuleStarted(session.moduleId)
 
-  const transcript = getMessages(sessionId)
+  // Only the unfolded tail is a candidate for the context window; everything
+  // at or below the watermark is represented by `state_summary`.
+  const transcript = getUnfoldedMessages(sessionId, session.foldedThroughId)
   const request = assembleTutorRequest({
     curriculum,
     module,
@@ -173,7 +187,8 @@ export async function runTutorTurn(args: TutorTurnArgs): Promise<void> {
 
 /** Rough context pressure indicator, for the UI. */
 export function transcriptPressure(sessionId: number): number {
-  const total = getMessages(sessionId).reduce(
+  const session = getSession(sessionId)
+  const total = getUnfoldedMessages(sessionId, session.foldedThroughId).reduce(
     (sum, m) => sum + estimateTokens(m.content),
     0
   )
