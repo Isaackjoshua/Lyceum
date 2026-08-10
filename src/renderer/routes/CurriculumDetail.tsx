@@ -6,6 +6,7 @@ import {
   Circle,
   CircleDot,
   FileDown,
+  Layers,
   Loader2,
   Play,
   Trash2
@@ -29,6 +30,7 @@ export function CurriculumDetailRoute(): JSX.Element {
     useCurriculumStore()
   const [exporting, setExporting] = useState<number | null>(null)
   const [exportNote, setExportNote] = useState<string | null>(null)
+  const [makingCards, setMakingCards] = useState<number | null>(null)
 
   useEffect(() => {
     if (id) void open(Number(id))
@@ -44,6 +46,19 @@ export function CurriculumDetailRoute(): JSX.Element {
     } else if (result.data.saved) {
       setExportNote(`Saved to ${result.data.path}`)
     }
+  }
+
+  const makeCards = async (moduleId: number): Promise<void> => {
+    setMakingCards(moduleId)
+    setExportNote(null)
+    const result = await window.api.cards.generate(moduleId)
+    setMakingCards(null)
+    setExportNote(
+      result.ok
+        ? `Made ${result.data.created} card${result.data.created === 1 ? '' : 's'}` +
+            (result.data.skipped > 0 ? `, skipped ${result.data.skipped} duplicate` : '')
+        : result.error
+    )
   }
 
   if (loading && !detail) {
@@ -138,6 +153,11 @@ export function CurriculumDetailRoute(): JSX.Element {
                       ~{module.estMinutes} min
                     </span>
                   ) : null}
+                  {module.mastery > 0 && (
+                    <span className="rounded bg-secondary px-1.5 py-0.5 text-[10px] tabular-nums text-muted-foreground">
+                      {Math.round(module.mastery * 100)}% mastery
+                    </span>
+                  )}
                 </div>
 
                 {module.summary && (
@@ -201,6 +221,20 @@ export function CurriculumDetailRoute(): JSX.Element {
                       <FileDown className="h-3.5 w-3.5" />
                     )}
                     PDF
+                  </Button>
+
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => void makeCards(module.id)}
+                    disabled={makingCards === module.id}
+                  >
+                    {makingCards === module.id ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Layers className="h-3.5 w-3.5" />
+                    )}
+                    Cards
                   </Button>
 
                   {module.status !== 'completed' ? (

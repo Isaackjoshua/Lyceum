@@ -1,11 +1,12 @@
 import { useEffect } from 'react'
 import { HashRouter, Navigate, Route, Routes } from 'react-router-dom'
-import { LayoutDashboard, Layers } from 'lucide-react'
 import { AppShell } from '@/components/AppShell'
 import { CurriculaRoute } from '@/routes/Curricula'
 import { CurriculumDetailRoute } from '@/routes/CurriculumDetail'
+import { DashboardRoute } from '@/routes/Dashboard'
 import { NewCurriculumRoute } from '@/routes/NewCurriculum'
-import { Placeholder } from '@/routes/Placeholder'
+import { QuizRoute } from '@/routes/Quiz'
+import { ReviewRoute } from '@/routes/Review'
 import { SessionRoute } from '@/routes/Session'
 import { SettingsRoute } from '@/routes/Settings'
 import { applyAppearance, useSettingsStore } from '@/stores/settingsStore'
@@ -53,28 +54,9 @@ export function App(): JSX.Element {
           <Route path="/new" element={<NewCurriculumRoute />} />
           <Route path="/curriculum/:id" element={<CurriculumDetailRoute />} />
           <Route path="/module/:moduleId" element={<SessionRoute />} />
-          <Route
-            path="/review"
-            element={
-              <Placeholder
-                icon={<Layers className="h-8 w-8" />}
-                title="Spaced repetition review"
-                body="Notes become flashcards, FSRS schedules them, and review works fully offline."
-                phase="Phase 2"
-              />
-            }
-          />
-          <Route
-            path="/dashboard"
-            element={
-              <Placeholder
-                icon={<LayoutDashboard className="h-8 w-8" />}
-                title="Progress dashboard"
-                body="Completion, mastery heatmap, streak, time on task, and the weak areas worth revisiting."
-                phase="Phase 2"
-              />
-            }
-          />
+          <Route path="/module/:moduleId/quiz" element={<QuizRoute />} />
+          <Route path="/review" element={<ReviewRoute />} />
+          <Route path="/dashboard" element={<DashboardRoute />} />
           <Route path="/settings" element={<SettingsRoute />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

@@ -31,5 +31,6 @@
     "config/**/*",
     "tests/**/*",
     "electron.vite.config.ts"
-  ]
+  ],
+  "exclude": ["tests/sanitise.test.ts"]
 }

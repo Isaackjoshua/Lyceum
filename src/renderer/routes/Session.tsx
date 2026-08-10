@@ -7,17 +7,29 @@ import {
   Loader2,
   NotebookPen,
   Send,
-  Square
+  Square,
+  X
 } from 'lucide-react'
-import type { CreateNoteArgs } from '@shared/types'
+import type { CreateNoteArgs, TurnEvent, VisualPayload } from '@shared/types'
 import { Button } from '@/components/ui/button'
 import { Markdown } from '@/components/Markdown'
 import { NoteCaptureModal, type NoteDraft } from '@/components/NoteCaptureModal'
 import { NotesDrawer } from '@/components/NotesDrawer'
 import { SelectionToolbar, useSelectionCapture } from '@/components/SelectionToolbar'
+import { VisualRenderer } from '@/components/VisualRenderer'
 import { cn } from '@/lib/utils'
 import { useNotesStore } from '@/stores/notesStore'
 import { useSessionStore } from '@/stores/sessionStore'
+
+type ToolHint = Extract<TurnEvent, { type: 'tool_result' }>['hint']
+
+/** Visuals persisted with an earlier assistant turn. */
+function visualsOf(meta: Record<string, unknown> | null): VisualPayload[] {
+  if (!meta || !Array.isArray(meta.hints)) return []
+  return (meta.hints as ToolHint[])
+    .filter((hint) => hint?.kind === 'visual')
+    .map((hint) => (hint as Extract<ToolHint, { kind: 'visual' }>).visual)
+}
 
 export function SessionRoute(): JSX.Element {
   const { moduleId } = useParams<{ moduleId: string }>()
@@ -30,11 +42,16 @@ export function SessionRoute(): JSX.Element {
     streamingText,
     activeRequestId,
     toasts,
+    visuals,
+    noteChips,
+    quizOffer,
     open,
     send,
     cancel,
     handleEvent,
     dismissToast,
+    dismissChip,
+    dismissQuizOffer,
     reset
   } = useSessionStore()
 
@@ -139,6 +156,14 @@ export function SessionRoute(): JSX.Element {
           </div>
 
           <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => navigate(`/module/${detail.module.id}/quiz`)}
+          >
+            Checkpoint
+          </Button>
+
+          <Button
             variant={notesOpen ? 'secondary' : 'ghost'}
             size="sm"
             onClick={() => setNotesOpen(!notesOpen)}
@@ -178,6 +203,9 @@ export function SessionRoute(): JSX.Element {
                 ) : (
                   <div>
                     <Markdown>{message.content}</Markdown>
+                    {visualsOf(message.meta).map((visual, i) => (
+                      <VisualRenderer key={i} visual={visual} />
+                    ))}
                     <button
                       type="button"
                       onClick={() => openDraftFor(message.content, message.id)}
@@ -193,6 +221,85 @@ export function SessionRoute(): JSX.Element {
             {streamingText && (
               <div data-message-id="0">
                 <Markdown>{streamingText}</Markdown>
+              </div>
+            )}
+
+            {/* Visuals for the turn still streaming; persisted ones render above. */}
+            {activeRequestId !== null &&
+              visuals.map((visual, i) => <VisualRenderer key={i} visual={visual} />)}
+
+            {noteChips.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {noteChips.map((chip) => (
+                  <div
+                    key={chip.id}
+                    className="flex items-center gap-2 rounded-full border border-accent/40 bg-accent/10 py-1 pl-3 pr-1 text-xs"
+                  >
+                    <BookmarkPlus className="h-3.5 w-3.5 shrink-0 text-accent" />
+                    <span className="max-w-64 truncate">
+                      Save &ldquo;{chip.suggestion.title}&rdquo;?
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!detail) return
+                        setDraft({
+                          excerpt: chip.suggestion.sourceExcerpt ?? chip.suggestion.content,
+                          curriculumId: detail.curriculum.id,
+                          moduleId: detail.module.id,
+                          sessionId: detail.session.id,
+                          messageId: detail.messages.at(-1)?.id ?? null,
+                          type: chip.suggestion.type,
+                          title: chip.suggestion.title,
+                          content: chip.suggestion.content
+                        })
+                        dismissChip(chip.id)
+                      }}
+                      className="rounded-full bg-accent px-2 py-0.5 font-medium text-accent-foreground"
+                    >
+                      Save
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => dismissChip(chip.id)}
+                      aria-label="Dismiss"
+                      className="rounded-full p-1 text-muted-foreground hover:text-foreground"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {quizOffer && (
+              <div className="flex items-center justify-between gap-3 rounded-md border border-accent/40 bg-accent/5 px-4 py-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium">Checkpoint reached</p>
+                  <p className="truncate text-xs text-muted-foreground">
+                    {quizOffer.focus
+                      ? `A short check on ${quizOffer.focus}`
+                      : 'A short check on what you just covered'}
+                  </p>
+                </div>
+                <div className="flex shrink-0 gap-1.5">
+                  <Button
+                    size="sm"
+                    onClick={() =>
+                      navigate(
+                        `/module/${quizOffer.moduleId}/quiz` +
+                          (quizOffer.focus
+                            ? `?focus=${encodeURIComponent(quizOffer.focus)}`
+                            : '')
+                      )
+                    }
+                  >
+                    Take it
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={dismissQuizOffer}>
+                    Later
+                  </Button>
+                </div>
               </div>
             )}
 

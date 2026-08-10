@@ -29,6 +29,7 @@
     "src/renderer/**/*",
     "src/shared/**/*",
     "config/**/*",
-    "src/preload/index.d.ts"
+    "src/preload/index.d.ts",
+    "tests/sanitise.test.ts"
   ]
 }

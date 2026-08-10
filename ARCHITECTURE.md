@@ -134,8 +134,9 @@ is the single most product-defining file in the repo.
 | Mode | Purpose | Default model | Tools |
 |---|---|---|---|
 | Curriculum architect | Topic + brief diagnostic → structured curriculum | Sonnet | `propose_curriculum` |
-| Tutor | The main teaching loop | Sonnet (configurable) | `mark_objective` (Phase 1); `suggest_note`, `render_visual`, `propose_quiz` gated until Phase 2 |
+| Tutor | The main teaching loop | Sonnet (configurable) | `mark_objective`, `suggest_note`, `render_visual`, `propose_quiz` |
 | Assessor | Generate a checkpoint quiz | Sonnet | `generate_quiz` |
+| Grader | Score one free-text answer | Haiku | — |
 | Card smith | Notes → flashcards | Haiku | `generate_flashcards` |
 | Summarizer | Module summaries + `state_summary` | Haiku | — |
 
@@ -157,10 +158,10 @@ Streaming events (main → renderer): `text_delta`, `tool_start`, `tool_result`,
 produced it, so a late event from a cancelled turn is discarded rather than
 appended to the transcript.
 
-**Tools are gated on the UI that renders them.** `suggest_note`, `render_visual`
-and `propose_quiz` are fully implemented in `toolRegistry.ts` but excluded from
-`MODES.tutor.tools` until Phase 2 ships their interfaces. Offering the model a
-tool whose result the app would silently drop makes the tutor look broken.
+**Tools are gated on the UI that renders them.** A tool is only listed in a
+mode's `tools` when the app can actually render its result — offering the model
+a tool whose output would be silently dropped makes the tutor look broken. All
+four tutor tools are live as of Phase 2.
 
 **Ordering is chosen for prompt caching.** The system prompt is two blocks: the
 frozen pedagogy (identical across every turn of every session, and marked
@@ -179,6 +180,53 @@ session's `state_summary` via the cheap model. Two rules matter: the fold runs
 *after* the turn has been delivered, so the learner never waits on background
 bookkeeping; and `minKeep` recent messages survive even when they exceed the
 budget, because dropping the immediate exchange would break the conversation.
+
+### Mastery
+
+Mastery is a blend, not a completion percentage:
+
+```
+quiz only     -> best quiz score
+cards only    -> flashcard retention
+both          -> 0.7 * best quiz score + 0.3 * retention
+neither       -> 0
+```
+
+Quiz score dominates because it is a direct measurement; retention is slower and
+noisier. When one signal is absent the other carries full weight, so a learner
+who has taken a checkpoint but made no cards is not capped at 70%. Retention is
+the share of a module's cards that have reached the FSRS `Review` state with at
+most two lapses. **Mastery measures evidence, not effort** — reading and talking
+to the tutor never move it.
+
+### Spaced repetition
+
+`services/srs.ts` wraps `ts-fsrs` in pure functions over card state, so the
+scheduling logic is testable without a database. Card state is stored as JSON in
+`flashcards.fsrs_json`, with the `due` timestamp mirrored into an indexed
+`flashcards.due` column so the due query is a range scan.
+
+Two decisions worth knowing:
+
+- **Intervals shown on the grading buttons are computed in main by FSRS**, never
+  guessed by the UI, so the number the learner sees is the number they get.
+- **Review works entirely offline.** No API call is involved in scheduling —
+  only card *generation* needs the network.
+
+### Rendering model-authored diagrams
+
+`render_visual` output is markup written by a model and injected into the DOM,
+so it goes through `renderer/lib/sanitiseSvg.ts` — its own module precisely so
+the policy is unit-testable (`tests/sanitise.test.ts`). Scripts, event handlers,
+`foreignObject`, `iframe`, `image`, `use` and navigation attributes are all
+stripped. Mermaid additionally runs at `securityLevel: 'strict'`, and its output
+is sanitised again on the way in.
+
+> A trap this caught: Mermaid renders node and edge labels inside
+> `<foreignObject>` by default. Stripping that tag — correctly — produced
+> diagrams with perfectly drawn but completely empty boxes. The fix is
+> `htmlLabels: false`, which makes Mermaid emit native `<text>` instead, so the
+> sanitiser and the labels can coexist.
 
 ### PDF export
 
@@ -228,6 +276,11 @@ suffix; a test asserts this, because a suffixed ID would 404.
   coercion of the model's `propose_curriculum` output.
 - `tests/pdf.test.ts` — markdown/maths rendering, code-fence protection against
   the maths regex, HTML escaping, and self-containment of the print document.
+- `tests/srs.test.ts` — FSRS round-tripping, interval ordering, lapse counting,
+  growth over successive reviews, retention, and streak arithmetic.
+- `tests/quiz.test.ts` — coercion of `generate_quiz` and `generate_flashcards`
+  output, and parsing of the grader's verdict.
+- `tests/sanitise.test.ts` — the SVG sanitiser policy, under jsdom.
 
 Two things need a live Electron runtime and so sit outside `npm test`; both were
 run as throwaway harnesses at their phase's acceptance:
@@ -239,6 +292,11 @@ run as throwaway harnesses at their phase's acceptance:
   trips through better-sqlite3, and `printToPDF` producing a real PDF with the
   KaTeX font subsets actually embedded (verified via `/BaseFont` entries, which
   is what caught the font-family bug above).
+- **Phase 2, quiz/card/dashboard round trips** — quiz insert and attempt, the
+  mastery blend at each of its branches, duplicate suppression on regenerated
+  cards, a review moving a card out of the due queue, and the dashboard's
+  counts, streak and weak-area detection. This is what caught the weak-area
+  filter keying on module status instead of evidence.
 
 The live teaching loop itself — streaming, the tool loop, the architect's
 diagnostic — requires a funded API key and is exercised manually.

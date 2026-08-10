@@ -1,10 +1,27 @@
 import { create } from 'zustand'
-import type { Message, SessionDetail, TurnEvent } from '@shared/types'
+import type {
+  Message,
+  NoteSuggestion,
+  SessionDetail,
+  TurnEvent,
+  VisualPayload
+} from '@shared/types'
 
 /** An objective the tutor ticked off during this turn, for a toast. */
 export interface ObjectiveToast {
   objectiveId: number
   evidence: string
+}
+
+/** A pending offer from the tutor, shown as a chip under the reply. */
+export interface NoteChip {
+  id: string
+  suggestion: NoteSuggestion
+}
+
+export interface QuizOffer {
+  moduleId: number
+  focus: string | null
 }
 
 interface SessionState {
@@ -16,11 +33,17 @@ interface SessionState {
   /** The in-flight turn, or null when idle. */
   activeRequestId: string | null
   toasts: ObjectiveToast[]
+  /** Visuals produced during the turn that is currently streaming. */
+  visuals: VisualPayload[]
+  noteChips: NoteChip[]
+  quizOffer: QuizOffer | null
 
   open: (moduleId: number) => Promise<void>
   send: (text: string) => Promise<void>
   cancel: () => Promise<void>
   dismissToast: (objectiveId: number) => void
+  dismissChip: (id: string) => void
+  dismissQuizOffer: () => void
   handleEvent: (event: TurnEvent) => void
   reset: () => void
 }
@@ -36,9 +59,20 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   streamingText: '',
   activeRequestId: null,
   toasts: [],
+  visuals: [],
+  noteChips: [],
+  quizOffer: null,
 
   open: async (moduleId) => {
-    set({ loading: true, error: null, streamingText: '', activeRequestId: null })
+    set({
+      loading: true,
+      error: null,
+      streamingText: '',
+      activeRequestId: null,
+      visuals: [],
+      noteChips: [],
+      quizOffer: null
+    })
     const result = await window.api.session.start(moduleId)
     set(
       result.ok
@@ -66,6 +100,9 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       activeRequestId: requestId,
       streamingText: '',
       error: null,
+      visuals: [],
+      noteChips: [],
+      quizOffer: null,
       detail: { ...detail, messages: [...detail.messages, optimistic] }
     })
 
@@ -91,6 +128,10 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   dismissToast: (objectiveId) =>
     set({ toasts: get().toasts.filter((t) => t.objectiveId !== objectiveId) }),
 
+  dismissChip: (id) => set({ noteChips: get().noteChips.filter((c) => c.id !== id) }),
+
+  dismissQuizOffer: () => set({ quizOffer: null }),
+
   handleEvent: (event) => {
     const state = get()
     // Ignore events from a turn the learner has already abandoned.
@@ -102,23 +143,36 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         break
 
       case 'tool_result': {
-        if (event.hint.kind !== 'objective_met') break
-        const { objectiveId, evidence } = event.hint
-        const detail = state.detail
-        set({
-          toasts: [...state.toasts, { objectiveId, evidence }],
-          detail: detail
-            ? {
-                ...detail,
-                module: {
-                  ...detail.module,
-                  objectives: detail.module.objectives.map((o) =>
-                    o.id === objectiveId ? { ...o, status: 'met' as const } : o
-                  )
+        const hint = event.hint
+        if (hint.kind === 'objective_met') {
+          const { objectiveId, evidence } = hint
+          const detail = state.detail
+          set({
+            toasts: [...state.toasts, { objectiveId, evidence }],
+            detail: detail
+              ? {
+                  ...detail,
+                  module: {
+                    ...detail.module,
+                    objectives: detail.module.objectives.map((o) =>
+                      o.id === objectiveId ? { ...o, status: 'met' as const } : o
+                    )
+                  }
                 }
-              }
-            : detail
-        })
+              : detail
+          })
+        } else if (hint.kind === 'visual') {
+          set({ visuals: [...state.visuals, hint.visual] })
+        } else if (hint.kind === 'note_suggested') {
+          set({
+            noteChips: [
+              ...state.noteChips,
+              { id: crypto.randomUUID(), suggestion: hint.suggestion }
+            ]
+          })
+        } else if (hint.kind === 'quiz_proposed') {
+          set({ quizOffer: { moduleId: hint.moduleId, focus: hint.focus } })
+        }
         break
       }
 
@@ -150,6 +204,9 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       streamingText: '',
       activeRequestId: null,
       error: null,
-      toasts: []
+      toasts: [],
+      visuals: [],
+      noteChips: [],
+      quizOffer: null
     })
 }))

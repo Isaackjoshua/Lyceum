@@ -67,6 +67,23 @@ const api: LyceumApi = {
   },
   exports: {
     modulePdf: (moduleId) => invoke(IPC.exportModulePdf, moduleId)
+  },
+  quiz: {
+    generate: (moduleId, focus) => invoke(IPC.quizGenerate, moduleId, focus ?? null),
+    get: (quizId) => invoke(IPC.quizGet, quizId),
+    latest: (moduleId) => invoke(IPC.quizLatest, moduleId),
+    submit: (quizId, responses) => invoke(IPC.quizSubmit, quizId, responses)
+  },
+  cards: {
+    generate: (moduleId) => invoke(IPC.cardsGenerate, moduleId),
+    dueQueue: (moduleId) => invoke(IPC.cardsDueQueue, moduleId ?? null),
+    review: (cardId, rating) => invoke(IPC.cardsReview, cardId, rating),
+    preview: (cardId) => invoke(IPC.cardsPreview, cardId),
+    suspend: (cardId, suspended) => invoke(IPC.cardsSuspend, cardId, suspended),
+    delete: (cardId) => invoke(IPC.cardsDelete, cardId)
+  },
+  dashboard: {
+    stats: () => invoke(IPC.dashboardStats)
   }
 }
 

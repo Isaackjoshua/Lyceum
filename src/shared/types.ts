@@ -329,6 +329,119 @@ export interface ExportResult {
   path: string | null
 }
 
+/* ------------------------------------------------------------------ *
+ * Quizzes                                                             *
+ * ------------------------------------------------------------------ */
+
+export interface QuizDetail {
+  quiz: Quiz
+  questions: QuizQuestion[]
+  module: Module
+}
+
+/** Per-question outcome after grading. */
+export interface GradedAnswer {
+  questionId: number
+  /** 0, 0.5 or 1. */
+  score: number
+  correct: boolean
+  feedback: string | null
+  answer: string
+  explanation: string
+}
+
+export interface QuizResult {
+  attemptId: number
+  score: number
+  answers: GradedAnswer[]
+  /** The module's recomputed mastery, 0..1. */
+  mastery: number
+}
+
+/* ------------------------------------------------------------------ *
+ * Spaced repetition                                                   *
+ * ------------------------------------------------------------------ */
+
+/** Anki-style self-grade. 1 Again, 2 Hard, 3 Good, 4 Easy. */
+export type ReviewRating = 1 | 2 | 3 | 4
+
+export interface DueCard {
+  id: number
+  front: string
+  back: string
+  moduleId: number | null
+  moduleTitle: string | null
+  due: number
+  reps: number
+  lapses: number
+  /** FSRS state: 0 New, 1 Learning, 2 Review, 3 Relearning. */
+  state: number
+}
+
+export interface ReviewQueue {
+  cards: DueCard[]
+  dueCount: number
+  newCount: number
+  totalCards: number
+}
+
+/** What each rating would schedule, so the UI can show the intervals. */
+export interface ReviewPreview {
+  rating: ReviewRating
+  /** Human-readable interval, e.g. "10m", "3d". */
+  interval: string
+}
+
+export interface CardGenerationResult {
+  created: number
+  skipped: number
+}
+
+/* ------------------------------------------------------------------ *
+ * Dashboard                                                           *
+ * ------------------------------------------------------------------ */
+
+export interface ModuleMastery {
+  moduleId: number
+  moduleTitle: string
+  curriculumId: number
+  curriculumTitle: string
+  mastery: number
+  status: ModuleStatus
+  objectivesMet: number
+  objectivesTotal: number
+}
+
+export interface WeakArea {
+  moduleId: number
+  moduleTitle: string
+  curriculumTitle: string
+  reason: string
+  mastery: number
+}
+
+export interface DashboardStats {
+  /** Share of all modules completed, 0..1. */
+  completion: number
+  modulesCompleted: number
+  modulesTotal: number
+  objectivesMet: number
+  objectivesTotal: number
+  /** Consecutive days with a session, review or quiz. */
+  streakDays: number
+  /** Days active in the last 30. */
+  activeDaysLast30: number
+  /** Minutes on task per day for the last 14 days, oldest first. */
+  minutesPerDay: { date: string; minutes: number }[]
+  dueToday: number
+  totalCards: number
+  notesTotal: number
+  mastery: ModuleMastery[]
+  weakAreas: WeakArea[]
+  /** Estimated spend this calendar month, USD. */
+  spendThisMonthUsd: number
+}
+
 /** Channel names. Anything not listed here is rejected by the preload bridge. */
 export const IPC = {
   keyGetStatus: 'key:getStatus',
@@ -363,6 +476,20 @@ export const IPC = {
   notesDelete: 'notes:delete',
 
   exportModulePdf: 'export:modulePdf',
+
+  quizGenerate: 'quiz:generate',
+  quizGet: 'quiz:get',
+  quizLatest: 'quiz:latest',
+  quizSubmit: 'quiz:submit',
+
+  cardsGenerate: 'cards:generate',
+  cardsDueQueue: 'cards:dueQueue',
+  cardsReview: 'cards:review',
+  cardsPreview: 'cards:preview',
+  cardsSuspend: 'cards:suspend',
+  cardsDelete: 'cards:delete',
+
+  dashboardStats: 'dashboard:stats',
 
   /** main -> renderer, one-way. */
   streamEvent: 'stream:event'
@@ -441,5 +568,25 @@ export interface LyceumApi {
   }
   exports: {
     modulePdf: (moduleId: number) => Promise<IpcResult<ExportResult>>
+  }
+  quiz: {
+    generate: (moduleId: number, focus?: string | null) => Promise<IpcResult<QuizDetail>>
+    get: (quizId: number) => Promise<IpcResult<QuizDetail>>
+    latest: (moduleId: number) => Promise<IpcResult<QuizDetail | null>>
+    submit: (
+      quizId: number,
+      responses: Record<string, string>
+    ) => Promise<IpcResult<QuizResult>>
+  }
+  cards: {
+    generate: (moduleId: number) => Promise<IpcResult<CardGenerationResult>>
+    dueQueue: (moduleId?: number | null) => Promise<IpcResult<ReviewQueue>>
+    review: (cardId: number, rating: ReviewRating) => Promise<IpcResult<null>>
+    preview: (cardId: number) => Promise<IpcResult<ReviewPreview[]>>
+    suspend: (cardId: number, suspended: boolean) => Promise<IpcResult<null>>
+    delete: (cardId: number) => Promise<IpcResult<null>>
+  }
+  dashboard: {
+    stats: () => Promise<IpcResult<DashboardStats>>
   }
 }

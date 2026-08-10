@@ -3,6 +3,8 @@ import { DEFAULT_MODELS } from '@config/models.js'
 import { ARCHITECT_SYSTEM } from './prompts/architect.js'
 import { TUTOR_SYSTEM } from './prompts/tutor.js'
 import { MODULE_SUMMARY_SYSTEM, STATE_SUMMARY_SYSTEM } from './prompts/summarizer.js'
+import { ASSESSOR_SYSTEM, GRADER_SYSTEM } from './prompts/assessor.js'
+import { CARD_SMITH_SYSTEM } from './prompts/cardSmith.js'
 
 /**
  * The five operating modes. Each is a system prompt + an allowed tool set +
@@ -14,6 +16,7 @@ export type ModeName =
   | 'architect'
   | 'tutor'
   | 'assessor'
+  | 'grader'
   | 'cardSmith'
   | 'stateSummary'
   | 'moduleSummary'
@@ -34,27 +37,28 @@ export const MODES: Record<ModeName, Mode> = {
   },
   tutor: {
     system: TUTOR_SYSTEM,
-    // render_visual, suggest_note and propose_quiz are implemented in the
-    // registry but stay switched off until Phase 2 ships the UI that renders
-    // them. Offering a tool whose result the app would silently drop would
-    // make the tutor look broken.
-    tools: ['mark_objective'],
+    tools: ['mark_objective', 'suggest_note', 'render_visual', 'propose_quiz'],
     model: DEFAULT_MODELS.tutor,
     maxTokens: 4096
   },
   assessor: {
-    // Phase 2.
-    system: '',
+    system: ASSESSOR_SYSTEM,
     tools: ['generate_quiz'],
     model: DEFAULT_MODELS.assessor,
-    maxTokens: 4096
+    maxTokens: 8192
+  },
+  grader: {
+    // Grades one free-text answer. Cheap model, tiny output.
+    system: GRADER_SYSTEM,
+    tools: [],
+    model: DEFAULT_MODELS.cardSmith,
+    maxTokens: 512
   },
   cardSmith: {
-    // Phase 2.
-    system: '',
+    system: CARD_SMITH_SYSTEM,
     tools: ['generate_flashcards'],
     model: DEFAULT_MODELS.cardSmith,
-    maxTokens: 4096
+    maxTokens: 8192
   },
   stateSummary: {
     system: STATE_SUMMARY_SYSTEM,

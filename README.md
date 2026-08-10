@@ -21,8 +21,8 @@ machine except in calls to Anthropic, billed to your own account.
 |---|---|---|
 | **0** | Scaffold, secure window, typed IPC, SQLite + migrations, key vault, Settings | ✅ Done |
 | **1** | Curriculum architect, streaming tutor chat, inline notes, per-module PDF | ✅ Done |
-| 2 | Quizzes + mastery, FSRS flashcard review, inline visuals, dashboard | Next |
-| 3 | Sandboxed widgets, context summarization, cost caps, backup/restore | Planned |
+| **2** | Quizzes + mastery, FSRS flashcard review, inline visuals, dashboard | ✅ Done |
+| 3 | Sandboxed widgets, context summarization, cost caps, backup/restore | Next |
 
 ### What works today
 
@@ -40,6 +40,21 @@ machine except in calls to Anthropic, billed to your own account.
 - **Export a study guide.** Any module exports to a typeset PDF: a Claude-written
   summary, your objectives with their status, and your own notes. Cover page,
   contents, page numbers, real KaTeX maths. Works offline apart from the summary.
+- **Take a checkpoint.** The tutor offers one when a chunk of material is
+  genuinely finished, or you can ask any time. Questions are scoped to what you
+  actually covered; multiple choice grades locally, written and code answers get
+  graded against a rubric with feedback that names the gap.
+- **Review with spaced repetition.** Turn a module's notes into flashcards, then
+  review them on an FSRS schedule. Grade Again/Hard/Good/Easy — the buttons show
+  what each choice schedules. Reviewing works entirely offline.
+- **See where you actually are.** The dashboard shows completion, a streak, time
+  on task, per-module mastery, and the modules worth revisiting — derived from
+  quiz scores and the cards you keep forgetting, not from time spent.
+- **Diagrams inline.** When a concept has shape, the tutor draws it. Mermaid and
+  SVG render in the transcript, sanitised before they touch the DOM.
+
+Mastery is deliberately evidence-based: it stays at zero until you take a
+checkpoint or review some cards. Reading does not move it.
 
 ---
 

@@ -43,6 +43,31 @@ export function requireInt(value: unknown, field: string): number {
   return n
 }
 
+export function requireOptionalInt(value: unknown, field: string): number | null {
+  if (value === undefined || value === null) return null
+  return requireInt(value, field)
+}
+
+export function requireRating(value: unknown): 1 | 2 | 3 | 4 {
+  const n = requireInt(value, 'rating')
+  if (n < 1 || n > 4) throw new Error('rating must be 1, 2, 3 or 4.')
+  return n as 1 | 2 | 3 | 4
+}
+
+/** Quiz responses arrive as { questionId: answer }. */
+export function sanitiseQuizResponses(input: unknown): Record<string, string> {
+  const raw = requireObject(input, 'responses')
+  const entries = Object.entries(raw)
+  if (entries.length > 100) throw new Error('Too many responses.')
+
+  const responses: Record<string, string> = {}
+  for (const [key, value] of entries) {
+    if (!/^\d+$/.test(key)) throw new Error(`Invalid question id: ${key}`)
+    responses[key] = boundedString(value ?? '', `responses[${key}]`, 20_000)
+  }
+  return responses
+}
+
 function boundedString(value: unknown, field: string, max: number): string {
   const text = requireString(value, field).trim()
   if (text.length > max) throw new Error(`${field} is too long (max ${max}).`)

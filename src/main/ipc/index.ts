@@ -9,8 +9,14 @@ import type {
   IpcResult,
   KeyStatus,
   Module,
+  CardGenerationResult,
+  DashboardStats,
   Note,
   Objective,
+  QuizDetail,
+  QuizResult,
+  ReviewPreview,
+  ReviewQueue,
   SessionDetail,
   Settings,
   TestConnectionResult,
@@ -33,14 +39,29 @@ import { describeApiError, testConnection } from '../harness/anthropicClient.js'
 import { runArchitectTurn } from '../services/architect.js'
 import { beginSession, loadSessionDetail, runTutorTurn } from '../services/tutor.js'
 import { exportModulePdf } from '../services/exportService.js'
+import { generateQuiz, submitQuiz } from '../services/quiz.js'
+import { generateCards } from '../services/cards.js'
+import { getQuizDetail, latestQuiz } from '../db/queries/quiz.js'
+import {
+  deleteCard,
+  dueQueue,
+  getCard,
+  reviewCard,
+  setSuspended
+} from '../db/queries/flashcards.js'
+import { dashboardStats } from '../db/queries/stats.js'
+import { previewIntervals } from '../services/srs.js'
 import {
   requireInt,
+  requireOptionalInt,
+  requireRating,
   requireString,
   sanitiseArchitectMessages,
   sanitiseCurriculumProposal,
   sanitiseNoteArgs,
   sanitiseNoteFilter,
   sanitiseNotePatch,
+  sanitiseQuizResponses,
   sanitiseSettingsPatch
 } from './validate.js'
 
@@ -237,6 +258,58 @@ export function registerIpcHandlers(): void {
     deleteNote(requireInt(id, 'noteId'))
     return null
   })
+
+  /* ------------------------------------------------------------ quiz */
+
+  handle<QuizDetail>(IPC.quizGenerate, (moduleId, focus) =>
+    generateQuiz(
+      requireInt(moduleId, 'moduleId'),
+      typeof focus === 'string' ? focus.slice(0, 500) : null
+    )
+  )
+
+  handle<QuizDetail>(IPC.quizGet, (quizId) => getQuizDetail(requireInt(quizId, 'quizId')))
+
+  handle<QuizDetail | null>(IPC.quizLatest, (moduleId) =>
+    latestQuiz(requireInt(moduleId, 'moduleId'))
+  )
+
+  handle<QuizResult>(IPC.quizSubmit, (quizId, responses) =>
+    submitQuiz(requireInt(quizId, 'quizId'), sanitiseQuizResponses(responses))
+  )
+
+  /* ----------------------------------------------------------- cards */
+
+  handle<CardGenerationResult>(IPC.cardsGenerate, (moduleId) =>
+    generateCards(requireInt(moduleId, 'moduleId'))
+  )
+
+  handle<ReviewQueue>(IPC.cardsDueQueue, (moduleId) =>
+    dueQueue(requireOptionalInt(moduleId, 'moduleId'))
+  )
+
+  handle<null>(IPC.cardsReview, (cardId, rating) => {
+    reviewCard(requireInt(cardId, 'cardId'), requireRating(rating))
+    return null
+  })
+
+  handle<ReviewPreview[]>(IPC.cardsPreview, (cardId) =>
+    previewIntervals(getCard(requireInt(cardId, 'cardId')).fsrs)
+  )
+
+  handle<null>(IPC.cardsSuspend, (cardId, suspended) => {
+    setSuspended(requireInt(cardId, 'cardId'), Boolean(suspended))
+    return null
+  })
+
+  handle<null>(IPC.cardsDelete, (cardId) => {
+    deleteCard(requireInt(cardId, 'cardId'))
+    return null
+  })
+
+  /* ------------------------------------------------------- dashboard */
+
+  handle<DashboardStats>(IPC.dashboardStats, () => dashboardStats())
 
   /* ---------------------------------------------------------- export */
 

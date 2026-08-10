@@ -294,3 +294,74 @@ export const PROPOSE_CURRICULUM_TOOL: Anthropic.Tool = {
     required: ['title', 'subject', 'goal', 'learner_level', 'modules']
   }
 }
+
+/** generate_quiz — Assessor mode only. No side effects; the caller persists. */
+export const GENERATE_QUIZ_TOOL: Anthropic.Tool = {
+  name: 'generate_quiz',
+  description:
+    "Produce a mixed quiz scoped to the module's objectives and the material the learner has actually covered.",
+  input_schema: {
+    type: 'object',
+    properties: {
+      questions: {
+        type: 'array',
+        description: '4 to 6 questions, mixing types.',
+        items: {
+          type: 'object',
+          properties: {
+            type: { type: 'string', enum: ['mcq', 'short', 'code'] },
+            prompt: { type: 'string' },
+            options: {
+              type: 'array',
+              description:
+                'Required for mcq: 3 to 5 options, exactly one correct, each distractor a real misconception.',
+              items: { type: 'string' }
+            },
+            answer: {
+              type: 'string',
+              description:
+                'For mcq, the correct option verbatim. Otherwise a model answer of one to three sentences.'
+            },
+            explanation: {
+              type: 'string',
+              description:
+                'Why the answer is right, and for mcq what each distractor gets wrong.'
+            }
+          },
+          required: ['type', 'prompt', 'answer', 'explanation']
+        }
+      }
+    },
+    required: ['questions']
+  }
+}
+
+/** generate_flashcards — Card smith mode only. */
+export const GENERATE_FLASHCARDS_TOOL: Anthropic.Tool = {
+  name: 'generate_flashcards',
+  description: "Turn a module's notes into active-recall cards (question/answer and cloze).",
+  input_schema: {
+    type: 'object',
+    properties: {
+      cards: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            front: {
+              type: 'string',
+              description: 'A question answerable from memory, or a cloze with _____.'
+            },
+            back: { type: 'string', description: 'The shortest complete answer.' },
+            note_id: {
+              type: 'integer',
+              description: 'The id of the note this card came from.'
+            }
+          },
+          required: ['front', 'back']
+        }
+      }
+    },
+    required: ['cards']
+  }
+}
