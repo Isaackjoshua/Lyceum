@@ -48,6 +48,8 @@ export function SessionRoute(): JSX.Element {
     streamingText,
     activeRequestId,
     toasts,
+    loadingEarlier,
+    loadEarlier,
     visuals,
     noteChips,
     quizOffer,
@@ -224,6 +226,21 @@ export function SessionRoute(): JSX.Element {
         {/* -------------------------------------------------- transcript */}
         <div ref={transcriptRef} className="relative flex-1 overflow-y-auto px-6 py-6">
           <div className="mx-auto max-w-2xl space-y-6">
+            {detail.totalMessages > detail.messages.length && (
+              <div className="flex justify-center pb-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => void loadEarlier()}
+                  disabled={loadingEarlier}
+                >
+                  {loadingEarlier && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                  Load earlier turns ({detail.totalMessages - detail.messages.length}{' '}
+                  older)
+                </Button>
+              </div>
+            )}
+
             {detail.messages.length === 0 && !streamingText && (
               <div className="rounded-lg border border-dashed p-6 text-center">
                 <p className="text-sm text-muted-foreground">

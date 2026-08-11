@@ -6,8 +6,7 @@ import type {
   QuizResult
 } from '@shared/types.js'
 import { getModuleWithObjectives } from '../db/queries/curriculum.js'
-import { getMessages } from '../db/queries/session.js'
-import { logUsage } from '../db/queries/session.js'
+import { logUsage, recentTranscriptText } from '../db/queries/session.js'
 import {
   getQuizDetail,
   insertQuiz,
@@ -89,16 +88,8 @@ function coveredMaterial(moduleId: number): string {
   const parts: string[] = []
   if (session.state_summary?.trim()) parts.push(session.state_summary.trim())
 
-  const recent = getMessages(session.id).slice(-14)
-  if (recent.length > 0) {
-    parts.push(
-      recent
-        .filter((m) => m.role !== 'tool')
-        .map((m) => `${m.role === 'user' ? 'Learner' : 'Tutor'}: ${m.content}`)
-        .join('\n\n')
-        .slice(0, 12_000)
-    )
-  }
+  const recent = recentTranscriptText(session.id, 14)
+  if (recent) parts.push(recent.slice(0, 12_000))
 
   return parts.join('\n\n') || '(no tutoring session has happened yet)'
 }

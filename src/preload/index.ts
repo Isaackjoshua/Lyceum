@@ -53,6 +53,7 @@ const api: LyceumApi = {
     start: (moduleId) => invoke(IPC.sessionStart, moduleId),
     get: (sessionId) => invoke(IPC.sessionGet, sessionId),
     send: (args) => invoke(IPC.sessionSend, args),
+    earlier: (sessionId, beforeId) => invoke(IPC.sessionEarlier, sessionId, beforeId),
     cancel: (requestId) => invoke(IPC.sessionCancel, requestId),
     onEvent: (listener) => {
       // The IpcRendererEvent is deliberately not forwarded: it carries a

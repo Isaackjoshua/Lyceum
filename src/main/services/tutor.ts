@@ -7,7 +7,8 @@ import {
 import { noteTitlesForModule } from '../db/queries/notes.js'
 import {
   appendMessage,
-  getMessages,
+  countMessages,
+  getRecentMessages,
   getSession,
   getUnfoldedMessages,
   logUsage,
@@ -19,11 +20,19 @@ import { runSimple, runTurn } from '../harness/llm.js'
 import { estimateTokens } from '../harness/contextManager.js'
 import { MODES, modelForRole } from '../harness/modes.js'
 import { assembleTutorRequest } from '../harness/promptAssembler.js'
+import { createDeltaBatcher } from '../harness/streamBatcher.js'
 import { executeTool, toolDefinitions } from '../harness/toolRegistry.js'
 import { assertWithinCap } from './usage.js'
 
 /** Fraction of the model's context we spend on the verbatim transcript tail. */
 const TRANSCRIPT_BUDGET_TOKENS = 24_000
+
+/**
+ * Turns loaded into the UI on open. The model's context window is governed
+ * separately by the token budget above — this is purely about not handing the
+ * renderer thousands of rows to mount at once.
+ */
+export const TRANSCRIPT_PAGE_SIZE = 120
 
 export function loadSessionDetail(sessionId: number): SessionDetail {
   const session = getSession(sessionId)
@@ -32,7 +41,8 @@ export function loadSessionDetail(sessionId: number): SessionDetail {
     session,
     module: { ...module, objectives },
     curriculum,
-    messages: getMessages(sessionId)
+    messages: getRecentMessages(sessionId, TRANSCRIPT_PAGE_SIZE),
+    totalMessages: countMessages(sessionId)
   }
 }
 
@@ -128,26 +138,43 @@ export async function runTutorTurn(args: TutorTurnArgs): Promise<void> {
     transcriptBudget: TRANSCRIPT_BUDGET_TOKENS
   })
 
-  const result = await runTurn({
-    modelRef,
-    system: request.system,
-    messages: request.messages,
-    tools: toolDefinitions(MODES.tutor.tools),
-    maxTokens,
-    effort: settings.effort,
-    onText: (delta) => emit({ type: 'text_delta', requestId, delta }),
-    onToolStart: (tool) => emit({ type: 'tool_start', requestId, tool }),
-    onToolResult: (tool, hint) => {
-      if (hint) emit({ type: 'tool_result', requestId, tool, hint })
-    },
-    executeTool: (name, input) =>
-      executeTool(name, input, {
-        sessionId,
-        moduleId: session.moduleId,
-        curriculumId: curriculum.id
-      }),
-    ...(args.signal ? { signal: args.signal } : {})
-  })
+  // Deltas are coalesced before crossing IPC — see streamBatcher for why.
+  const batcher = createDeltaBatcher((delta) =>
+    emit({ type: 'text_delta', requestId, delta })
+  )
+
+  let result: Awaited<ReturnType<typeof runTurn>>
+  try {
+    result = await runTurn({
+      modelRef,
+      system: request.system,
+      messages: request.messages,
+      tools: toolDefinitions(MODES.tutor.tools),
+      maxTokens,
+      effort: settings.effort,
+      onText: (delta) => batcher.push(delta),
+      // Tool events are rare and order-sensitive against the text around them,
+      // so they flush the buffer rather than being batched.
+      onToolStart: (tool) => {
+        batcher.flush()
+        emit({ type: 'tool_start', requestId, tool })
+      },
+      onToolResult: (tool, hint) => {
+        batcher.flush()
+        if (hint) emit({ type: 'tool_result', requestId, tool, hint })
+      },
+      executeTool: (name, input) =>
+        executeTool(name, input, {
+          sessionId,
+          moduleId: session.moduleId,
+          curriculumId: curriculum.id
+        }),
+      ...(args.signal ? { signal: args.signal } : {})
+    })
+  } finally {
+    // Flush on the error path too, so partial output is not silently lost.
+    batcher.flush()
+  }
 
   const stored = appendMessage(sessionId, 'assistant', result.text, {
     hints: result.hints,

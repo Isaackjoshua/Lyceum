@@ -1,15 +1,13 @@
 import { join } from 'node:path'
 import { app, shell, BrowserWindow, session } from 'electron'
 import { electronApp, is, optimizer } from '@electron-toolkit/utils'
+// Imported first, for its side effect: pins the app name before anything
+// reads app.getPath('userData').
+import './appIdentity.js'
 import { closeDatabase, initDatabase } from './db/index.js'
 import { registerIpcHandlers } from './ipc/index.js'
 import { migrateLegacyKey } from './security/keyVault.js'
 
-// Pin the app name before anything reads app.getPath('userData'). Electron
-// otherwise derives it from whichever package.json it finds, so the database
-// would land in a different directory depending on how the app was launched —
-// and a learner's curricula would appear to vanish.
-app.setName('Lyceum')
 
 /**
  * Content Security Policy.
@@ -39,6 +37,31 @@ function contentSecurityPolicy(): string {
   return directives.join('; ')
 }
 
+/** True when a URL belongs to the app itself. */
+function isAppUrl(url: string): boolean {
+  const devServer = process.env['ELECTRON_RENDERER_URL']
+  return devServer ? url.startsWith(devServer) : url.startsWith('file://')
+}
+
+/**
+ * Opens a link in the system browser, but only if it is an ordinary web link.
+ * Everything else is dropped: `shell.openExternal` hands the URL to the OS,
+ * which will happily launch a registered handler for an arbitrary scheme.
+ */
+function openExternally(url: string): void {
+  let parsed: URL
+  try {
+    parsed = new URL(url)
+  } catch {
+    return
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    console.warn(`[security] refused to open a non-web URL (${parsed.protocol})`)
+    return
+  }
+  void shell.openExternal(parsed.toString())
+}
+
 function createWindow(): BrowserWindow {
   const window = new BrowserWindow({
     width: 1280,
@@ -61,19 +84,20 @@ function createWindow(): BrowserWindow {
 
   window.on('ready-to-show', () => window.show())
 
-  // External links open in the user's browser, never in an Electron window.
+  // External links open in the user's browser, never in an Electron window —
+  // and only if they are web links. Handing an arbitrary scheme to the OS is
+  // how `file:`, `smb:` or a registered custom-protocol handler turns a link in
+  // model-authored markdown into local code execution.
   window.webContents.setWindowOpenHandler(({ url }) => {
-    void shell.openExternal(url)
+    openExternally(url)
     return { action: 'deny' }
   })
 
   // Block in-app navigation away from the app's own origin.
   window.webContents.on('will-navigate', (event, url) => {
-    const devServer = process.env['ELECTRON_RENDERER_URL']
-    const allowed = devServer ? url.startsWith(devServer) : url.startsWith('file://')
-    if (!allowed) {
+    if (!isAppUrl(url)) {
       event.preventDefault()
-      void shell.openExternal(url)
+      openExternally(url)
     }
   })
 

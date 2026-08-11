@@ -7,6 +7,7 @@ import { estimateCost, lookupModel, parseModelRef } from '@config/models.js'
 import { providerInfo } from '@config/providers.js'
 import { getApiKey } from '../../security/keyVault.js'
 import { readProviderConfig } from '../../db/queries/settings.js'
+import { assertSafeBaseUrl } from '../../security/baseUrl.js'
 import type { ToolHint } from '../toolRegistry.js'
 import {
   MissingKeyError,
@@ -39,6 +40,14 @@ function client(providerId: string): OpenAI {
     )
   }
 
+  // Re-checked at request time, not just on save: a stored value could predate
+  // this rule or arrive from a backup written by an older build.
+  try {
+    assertSafeBaseUrl(baseURL)
+  } catch (err) {
+    throw new ProviderConfigError((err as Error).message)
+  }
+
   let apiKey: string | null = null
   if (info.auth === 'api-key') {
     apiKey = getApiKey(providerId)
@@ -52,6 +61,17 @@ function client(providerId: string): OpenAI {
     maxRetries: 3,
     timeout: 10 * 60 * 1000
   })
+}
+
+/**
+ * The output-cap parameter differs across OpenAI-compatible servers. Sending
+ * the wrong one is not an error on most of them — it is silently ignored,
+ * which means generation runs uncapped.
+ */
+function tokenCap(providerId: string, maxTokens: number): Record<string, number> {
+  return providerInfo(providerId)?.usesMaxCompletionTokens
+    ? { max_completion_tokens: maxTokens }
+    : { max_tokens: maxTokens }
 }
 
 function toOpenAITools(tools: ToolSpec[]): ChatCompletionTool[] {
@@ -85,6 +105,7 @@ function safeParse(json: string): Record<string, unknown> {
 
 async function runNative(
   openai: OpenAI,
+  providerId: string,
   model: string,
   options: RunOptions
 ): Promise<RunResult> {
@@ -106,7 +127,7 @@ async function runNative(
     const stream = await openai.chat.completions.create(
       {
         model,
-        max_completion_tokens: options.maxTokens,
+        ...tokenCap(providerId, options.maxTokens),
         messages,
         ...(tools.length > 0 ? { tools } : {}),
         stream: true,
@@ -203,6 +224,7 @@ async function runNative(
  */
 async function runEmulated(
   openai: OpenAI,
+  providerId: string,
   model: string,
   options: RunOptions
 ): Promise<RunResult> {
@@ -226,7 +248,7 @@ async function runEmulated(
     const stream = await openai.chat.completions.create(
       {
         model,
-        max_completion_tokens: options.maxTokens,
+        ...tokenCap(providerId, options.maxTokens),
         messages,
         stream: true,
         stream_options: { include_usage: true }
@@ -319,8 +341,8 @@ async function runTurn(options: RunOptions): Promise<RunResult> {
 
   const native = info.capabilities.tools || options.tools.length === 0
   return native
-    ? runNative(openai, model, options)
-    : runEmulated(openai, model, options)
+    ? runNative(openai, provider, model, options)
+    : runEmulated(openai, provider, model, options)
 }
 
 async function runSimple(
@@ -332,7 +354,7 @@ async function runSimple(
   const response = await openai.chat.completions.create(
     {
       model,
-      max_completion_tokens: options.maxTokens,
+      ...tokenCap(provider, options.maxTokens),
       messages: [
         { role: 'system', content: options.system },
         { role: 'user', content: options.userContent }

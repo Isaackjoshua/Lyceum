@@ -1,4 +1,5 @@
 import { app, BrowserWindow, ipcMain, webContents } from 'electron'
+import type { IpcMainInvokeEvent } from 'electron'
 import type {
   AppVersions,
   ArchitectTurnResult,
@@ -8,6 +9,7 @@ import type {
   ExportResult,
   IpcResult,
   KeyStatus,
+  Message,
   Module,
   CardGenerationResult,
   DashboardStats,
@@ -55,8 +57,15 @@ import {
 } from '../security/keyVault.js'
 import { describeApiError, testConnection } from '../harness/llm.js'
 import { buildProviderCatalog } from '../services/catalog.js'
+import { createDeltaBatcher } from '../harness/streamBatcher.js'
 import { runArchitectTurn } from '../services/architect.js'
-import { beginSession, loadSessionDetail, runTutorTurn } from '../services/tutor.js'
+import {
+  beginSession,
+  loadSessionDetail,
+  runTutorTurn,
+  TRANSCRIPT_PAGE_SIZE
+} from '../services/tutor.js'
+import { getMessagesBefore } from '../db/queries/session.js'
 import { exportModulePdf } from '../services/exportService.js'
 import { generateQuiz, submitQuiz } from '../services/quiz.js'
 import { generateCards } from '../services/cards.js'
@@ -90,9 +99,40 @@ import {
 /** In-flight turns, so the renderer can cancel one. */
 const inFlight = new Map<string, AbortController>()
 
+/**
+ * Rejects any IPC call that did not come from the app's own top-level frame.
+ *
+ * Nothing should be able to reach these channels today — sandboxed widget
+ * iframes get no preload, so they have no `ipcRenderer` — but this is the
+ * process trust boundary, and a boundary that is only enforced by "nothing
+ * currently calls it" is not enforced at all.
+ */
+function assertTrustedSender(event: IpcMainInvokeEvent, channel: string): void {
+  let url = ''
+  let isTopLevel = false
+  try {
+    const frame = event.senderFrame
+    if (frame) {
+      url = frame.url
+      isTopLevel = frame.parent === null
+    }
+  } catch {
+    // The frame was destroyed mid-call; treat that as untrusted.
+  }
+
+  const devServer = process.env['ELECTRON_RENDERER_URL']
+  const fromApp = devServer ? url.startsWith(devServer) : url.startsWith('file://')
+
+  if (!isTopLevel || !fromApp) {
+    console.error(`[security] rejected ${channel} from an untrusted frame: ${url}`)
+    throw new Error('This request did not come from the Lyceum window.')
+  }
+}
+
 function handle<T>(channel: string, fn: (...args: unknown[]) => Promise<T> | T): void {
-  ipcMain.handle(channel, async (_event, ...args): Promise<IpcResult<T>> => {
+  ipcMain.handle(channel, async (event, ...args): Promise<IpcResult<T>> => {
     try {
+      assertTrustedSender(event, channel)
       return { ok: true, data: await fn(...args) }
     } catch (err) {
       const message = describeApiError(err)
@@ -185,21 +225,28 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(
     IPC.curriculumArchitectTurn,
     async (event, rawMessages, rawRequestId): Promise<IpcResult<ArchitectTurnResult>> => {
+      assertTrustedSender(event, IPC.curriculumArchitectTurn)
       const requestId = requireString(rawRequestId, 'requestId')
       const controller = new AbortController()
       inFlight.set(requestId, controller)
       const senderId = event.sender.id
 
+      const batcher = createDeltaBatcher((delta) =>
+        emitTo(senderId, { type: 'text_delta', requestId, delta })
+      )
+
       try {
         const messages = sanitiseArchitectMessages(rawMessages)
         const result = await runArchitectTurn(
           messages,
-          (delta) => emitTo(senderId, { type: 'text_delta', requestId, delta }),
+          (delta) => batcher.push(delta),
           controller.signal
         )
+        batcher.flush()
         emitTo(senderId, { type: 'done', requestId, messageId: 0 })
         return { ok: true, data: result }
       } catch (err) {
+        batcher.flush()
         const message = describeApiError(err)
         console.error(`[ipc] architectTurn failed: ${message}`)
         emitTo(senderId, { type: 'error', requestId, message })
@@ -263,6 +310,11 @@ export function registerIpcHandlers(): void {
   )
 
   ipcMain.handle(IPC.sessionSend, async (event, rawArgs): Promise<IpcResult<null>> => {
+    try {
+      assertTrustedSender(event, IPC.sessionSend)
+    } catch (err) {
+      return { ok: false, error: (err as Error).message }
+    }
     if (typeof rawArgs !== 'object' || rawArgs === null) {
       return { ok: false, error: 'Invalid arguments.' }
     }
@@ -296,6 +348,14 @@ export function registerIpcHandlers(): void {
       if (requestId) inFlight.delete(requestId)
     }
   })
+
+  handle<Message[]>(IPC.sessionEarlier, (sessionId, beforeId) =>
+    getMessagesBefore(
+      requireInt(sessionId, 'sessionId'),
+      requireInt(beforeId, 'beforeId'),
+      TRANSCRIPT_PAGE_SIZE
+    )
+  )
 
   handle<null>(IPC.sessionCancel, (requestId) => {
     const id = requireString(requestId, 'requestId')
@@ -380,6 +440,7 @@ export function registerIpcHandlers(): void {
 
   ipcMain.handle(IPC.dataBackup, async (event): Promise<IpcResult<BackupResult>> => {
     try {
+      assertTrustedSender(event, IPC.dataBackup)
       const parent = BrowserWindow.fromWebContents(event.sender) ?? undefined
       return { ok: true, data: await backupDatabase(parent) }
     } catch (err) {
@@ -391,6 +452,7 @@ export function registerIpcHandlers(): void {
 
   ipcMain.handle(IPC.dataRestore, async (event): Promise<IpcResult<RestoreResult>> => {
     try {
+      assertTrustedSender(event, IPC.dataRestore)
       const parent = BrowserWindow.fromWebContents(event.sender) ?? undefined
       const result = await restoreDatabase(parent)
       if (result.restored) {
@@ -408,6 +470,7 @@ export function registerIpcHandlers(): void {
 
   ipcMain.handle(IPC.dataDeleteAll, async (event): Promise<IpcResult<boolean>> => {
     try {
+      assertTrustedSender(event, IPC.dataDeleteAll)
       const parent = BrowserWindow.fromWebContents(event.sender) ?? undefined
       return { ok: true, data: await deleteAllData(parent) }
     } catch (err) {
@@ -423,6 +486,7 @@ export function registerIpcHandlers(): void {
     IPC.exportModulePdf,
     async (event, moduleId): Promise<IpcResult<ExportResult>> => {
       try {
+        assertTrustedSender(event, IPC.exportModulePdf)
         const parent = BrowserWindow.fromWebContents(event.sender) ?? undefined
         const data = await exportModulePdf(requireInt(moduleId, 'moduleId'), parent)
         return { ok: true, data }

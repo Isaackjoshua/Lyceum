@@ -1,5 +1,7 @@
-import { writeFile } from 'node:fs/promises'
-import { BrowserWindow, dialog } from 'electron'
+import { randomBytes } from 'node:crypto'
+import { rm, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
+import { app, BrowserWindow, dialog } from 'electron'
 import type { ExportResult } from '@shared/types.js'
 import { buildHtml, escapeHtml, type PdfDocument } from './render.js'
 
@@ -21,11 +23,15 @@ async function printToPdf(doc: PdfDocument): Promise<Buffer> {
     }
   })
 
+  // Written to a scratch file rather than a data: URL. The document carries
+  // ~250KB of inlined font data before any content, and percent-encoding it
+  // inflates that further — long study guides would run into the navigation
+  // size limit and fail as an unexplained blank page.
+  const scratch = join(app.getPath('temp'), `lyceum-print-${randomBytes(8).toString('hex')}.html`)
+
   try {
-    const html = buildHtml(doc)
-    await window.loadURL(
-      `data:text/html;charset=utf-8,${encodeURIComponent(html)}`
-    )
+    await writeFile(scratch, buildHtml(doc), { encoding: 'utf8', mode: 0o600 })
+    await window.loadFile(scratch)
     // Give the layout engine a beat to settle the inlined webfonts.
     await new Promise((resolve) => setTimeout(resolve, 350))
 
@@ -44,6 +50,9 @@ async function printToPdf(doc: PdfDocument): Promise<Buffer> {
     })
   } finally {
     window.destroy()
+    await rm(scratch, { force: true }).catch(() => {
+      // A leftover temp file is not worth failing an export over.
+    })
   }
 }
 

@@ -194,13 +194,27 @@ export function listCurricula(includeArchived = false): CurriculumSummary[] {
         )
         .all()
 
-  const moduleCounts = db.prepare<[number], { total: number; done: number }>(
-    `SELECT COUNT(*) AS total,
-            COALESCE(SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END), 0) AS done
-     FROM modules WHERE curriculum_id = ?`
+  // Counted in two grouped queries rather than two per curriculum. The sidebar
+  // renders this list on every navigation, so an N+1 here is paid constantly.
+  const moduleCounts = new Map<number, { total: number; done: number }>(
+    db
+      .prepare<[], { curriculum_id: number; total: number; done: number }>(
+        `SELECT curriculum_id,
+                COUNT(*) AS total,
+                COALESCE(SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END), 0) AS done
+         FROM modules GROUP BY curriculum_id`
+      )
+      .all()
+      .map((r) => [r.curriculum_id, { total: r.total, done: r.done }])
   )
-  const noteCounts = db.prepare<[number], { n: number }>(
-    'SELECT COUNT(*) AS n FROM notes WHERE curriculum_id = ?'
+
+  const noteCounts = new Map<number, number>(
+    db
+      .prepare<[], { curriculum_id: number; n: number }>(
+        'SELECT curriculum_id, COUNT(*) AS n FROM notes WHERE curriculum_id IS NOT NULL GROUP BY curriculum_id'
+      )
+      .all()
+      .map((r) => [r.curriculum_id, r.n])
   )
 
   return rows.map((row) => {
@@ -209,7 +223,7 @@ export function listCurricula(includeArchived = false): CurriculumSummary[] {
       ...toCurriculum(row),
       moduleCount: counts?.total ?? 0,
       completedModules: counts?.done ?? 0,
-      noteCount: noteCounts.get(row.id)?.n ?? 0
+      noteCount: noteCounts.get(row.id) ?? 0
     }
   })
 }

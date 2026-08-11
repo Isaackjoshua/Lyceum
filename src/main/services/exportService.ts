@@ -10,7 +10,7 @@ import { hasApiKey } from '../security/keyVault.js'
 import { parseModelRef } from '@config/models.js'
 import { spendStatus } from './usage.js'
 import { savePdf, slugify } from '../pdf/export.js'
-import type { PdfSection } from '../pdf/render.js'
+import { escapeHtml, type PdfSection } from '../pdf/render.js'
 
 /** Asks the cheap model for a module summary. Falls back to notes when offline. */
 async function generateSummary(
@@ -96,7 +96,7 @@ export async function exportModulePdf(
               (o) =>
                 `<div class="objective"><span class="mark">${
                   o.status === 'met' ? '&#10003; met' : '&#9675; open'
-                }</span><span>${o.text}</span></div>`
+                }</span><span>${escapeHtml(o.text)}</span></div>`
             )
             .join('\n')
         : '_No objectives recorded for this module._'
@@ -108,11 +108,15 @@ export async function exportModulePdf(
       notes.length > 0
         ? notes
             .map(
+              // Escaped, not interpolated raw. Note content is model- and
+              // learner-authored; the print window has JavaScript disabled, so
+              // this is defence in depth rather than the only barrier — but a
+              // stray `<` should not be able to eat the rest of the document.
               (n) => `<div class="note">
-  <div class="note-type">${n.type}</div>
-  <div class="note-title">${n.title}</div>
-  <div>${n.content}</div>
-  ${n.annotation ? `<div class="note-annotation">${n.annotation}</div>` : ''}
+  <div class="note-type">${escapeHtml(n.type)}</div>
+  <div class="note-title">${escapeHtml(n.title)}</div>
+  <div>${escapeHtml(n.content)}</div>
+  ${n.annotation ? `<div class="note-annotation">${escapeHtml(n.annotation)}</div>` : ''}
 </div>`
             )
             .join('\n')

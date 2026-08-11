@@ -1,6 +1,9 @@
 import { join } from 'node:path'
 import { mkdirSync } from 'node:fs'
 import { app } from 'electron'
+// Side-effect import: guarantees userData resolves to the same directory no
+// matter which entry point opened the database.
+import '../appIdentity.js'
 import Database from 'better-sqlite3'
 import type { Database as Db } from 'better-sqlite3'
 import { migrations } from './migrations/index.js'

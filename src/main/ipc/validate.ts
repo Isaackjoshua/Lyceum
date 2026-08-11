@@ -12,6 +12,7 @@ import type {
 import { NOTE_TYPES } from '@shared/types.js'
 import { parseModelRef } from '@config/models.js'
 import { PROVIDERS } from '@config/providers.js'
+import { assertSafeBaseUrl } from '../security/baseUrl.js'
 
 /**
  * Input validation for values crossing the IPC boundary.
@@ -348,26 +349,15 @@ export function sanitiseNoteFilter(input: unknown): NoteFilter {
 
 const MAX_CUSTOM_MODELS = 40
 
+
 export function sanitiseProviderConfigPatch(input: unknown): Partial<ProviderConfig> {
   const raw = requireObject(input, 'config')
   const patch: Partial<ProviderConfig> = {}
 
   if (raw.baseUrl !== undefined) {
     const url = boundedString(raw.baseUrl ?? '', 'baseUrl', 500)
-    if (url) {
-      // Only http(s). A file: or data: base URL would be a way to make the
-      // main process read something it should not.
-      let parsed: URL
-      try {
-        parsed = new URL(url)
-      } catch {
-        throw new Error(`That is not a valid URL: ${url}`)
-      }
-      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-        throw new Error('A base URL must start with http:// or https://')
-      }
-    }
-    patch.baseUrl = url
+    if (url) patch.baseUrl = assertSafeBaseUrl(url)
+    else patch.baseUrl = ''
   }
 
   if (raw.customModels !== undefined) {

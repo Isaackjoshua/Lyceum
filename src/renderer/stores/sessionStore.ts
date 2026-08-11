@@ -33,12 +33,15 @@ interface SessionState {
   /** The in-flight turn, or null when idle. */
   activeRequestId: string | null
   toasts: ObjectiveToast[]
+  /** True while an earlier page of the transcript is being fetched. */
+  loadingEarlier: boolean
   /** Visuals produced during the turn that is currently streaming. */
   visuals: VisualPayload[]
   noteChips: NoteChip[]
   quizOffer: QuizOffer | null
 
   open: (moduleId: number) => Promise<void>
+  loadEarlier: () => Promise<void>
   send: (text: string) => Promise<void>
   cancel: () => Promise<void>
   dismissToast: (objectiveId: number) => void
@@ -59,9 +62,33 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   streamingText: '',
   activeRequestId: null,
   toasts: [],
+  loadingEarlier: false,
   visuals: [],
   noteChips: [],
   quizOffer: null,
+
+  loadEarlier: async () => {
+    const state = get()
+    const detail = state.detail
+    const oldest = detail?.messages[0]
+    if (!detail || !oldest || state.loadingEarlier) return
+
+    set({ loadingEarlier: true })
+    const result = await window.api.session.earlier(detail.session.id, oldest.id)
+    if (!result.ok) {
+      set({ loadingEarlier: false, error: result.error })
+      return
+    }
+
+    // Re-read: a turn may have completed while this was in flight.
+    const current = get().detail
+    set({
+      loadingEarlier: false,
+      detail: current
+        ? { ...current, messages: [...result.data, ...current.messages] }
+        : current
+    })
+  },
 
   open: async (moduleId) => {
     set({
@@ -134,8 +161,10 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
   handleEvent: (event) => {
     const state = get()
-    // Ignore events from a turn the learner has already abandoned.
-    if (state.activeRequestId && event.requestId !== state.activeRequestId) return
+    // Ignore anything that is not from the turn in flight. A null active id
+    // means no turn is running, so a late event from a cancelled or finished
+    // one must be dropped rather than appended to the next reply.
+    if (event.requestId !== state.activeRequestId) return
 
     switch (event.type) {
       case 'text_delta':
@@ -205,6 +234,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       activeRequestId: null,
       error: null,
       toasts: [],
+      loadingEarlier: false,
       visuals: [],
       noteChips: [],
       quizOffer: null

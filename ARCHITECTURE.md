@@ -165,6 +165,15 @@ still stripped from the visible text.
 This is strictly a fallback, and Settings says so when a chosen model is in
 that category.
 
+### Application identity
+
+`appIdentity.ts` pins `app.setName` and is imported for its side effect by both
+the entry point and the database layer. Electron otherwise derives the name
+from whichever `package.json` it finds first, so `userData` — and therefore the
+database — moves depending on how the process was launched. Setting it only in
+the entry point was fragile: a second entry point silently got its own
+database, which is exactly how this was found.
+
 ### Keys
 
 One encrypted key per provider, each its own `<provider>.key.enc` under
@@ -395,6 +404,26 @@ suffix; a test asserts this, because a suffixed ID would 404.
 | `setWindowOpenHandler` denies and shells out | Prevents an in-app browser window with app privileges. |
 | `will-navigate` blocked off-origin | Stops a malicious link from replacing the app UI. |
 | Key file written `0600` | Defence in depth beneath the OS encryption layer. |
+| `shell.openExternal` restricted to http(s) | It hands the URL to the OS, which will launch a registered handler for an arbitrary scheme. A link in model-authored markdown must not be able to reach `file:` or a custom protocol. |
+| Plaintext `http://` base URLs refused except on loopback | Otherwise a mistyped or malicious endpoint puts the learner's API key on the wire in the clear, on every request. Enforced on save *and* at request time, since a value can arrive from a restored backup. |
+| Every IPC handler checks its sender | The process trust boundary. Nothing can reach these channels today — sandboxed widgets get no preload — but a boundary enforced only by "nothing currently calls it" is not enforced. |
+| PDF content HTML-escaped | Note and objective text is model- and learner-authored. The print window has JavaScript disabled, so this is defence in depth — but a stray `<` should not be able to eat the rest of the document. |
+
+---
+
+## Scale
+
+This is a single-user desktop app, so "scale" means one learner over years: thousands of turns in a module, hundreds of modules, tens of thousands of events. The constraints that matter are per-interaction latency and unbounded growth, not concurrency.
+
+| Concern | Approach |
+|---|---|
+| Streamed tokens crossing IPC | Coalesced on a 50ms interval (`harness/streamBatcher.ts`). One IPC message and one React render per token is quadratic in reply length once markdown re-parsing is counted; batching cuts message volume by one to two orders of magnitude while staying under the threshold where streaming stops feeling live. Tool events flush the buffer so ordering against surrounding text is preserved. |
+| Transcript growth | A session opens with the most recent 120 turns and a total count; older pages load on request. The model's context window is governed separately by the token budget — these are independent limits with different jobs. |
+| Context growth across turns | The fold watermark (migration 2) means each turn is summarised exactly once. |
+| `listCurricula` | Two grouped queries instead of two per curriculum. The sidebar renders this on every navigation, so an N+1 here is paid constantly. Measured: 3 statements for 13 curricula. |
+| `dashboardStats` | Three grouped queries instead of three per module. Measured: 9 statements for 73 modules; the previous shape would have been ~225. |
+| `events` growth | The streak query is bounded to a two-year window. A streak only ever needs a contiguous run ending today. |
+| Prompt assembly | Only the unfolded tail is read, and the quiz assessor reads its transcript tail with a `LIMIT` rather than loading everything to slice the last 14. |
 
 ---
 
@@ -417,6 +446,9 @@ suffix; a test asserts this, because a suffixed ID would 404.
 - `tests/providers.test.ts` — the emulated tool protocol (extraction, hostile
   input, partial fences) and catalog invariants, including that no non-Anthropic
   model claims an Anthropic-only parameter.
+- `tests/audit.test.ts` — the base-URL policy (including hosts that merely look
+  like loopback), the delta batcher's ordering and lossless flush, PDF
+  escaping, and the per-provider token-cap parameter.
 
 Two things need a live Electron runtime and so sit outside `npm test`; both were
 run as throwaway harnesses at their phase's acceptance:
@@ -452,6 +484,14 @@ run as throwaway harnesses at their phase's acceptance:
   across chunk boundaries never leaking raw JSON into the stream, usage
   accumulating across tool round trips, and both misconfiguration paths (no
   base URL, no key) failing with a message a learner can act on.
+
+- **Security and scale audit** — a stored plaintext-`http` base URL refused at
+  request time (not just on save); `max_tokens` rather than
+  `max_completion_tokens` reaching a non-OpenAI server; transcript paging over
+  900 turns loading 120 and paging back contiguously to the beginning; query
+  counts held constant while curricula and modules grew; and a 487KB print
+  document rendering to PDF through a temp file, where a percent-encoded
+  `data:` URL was the previous risk.
 
 The live teaching loop itself — streaming, the tool loop, the architect's
 diagnostic — requires a funded API key and is exercised manually. That is now

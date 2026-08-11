@@ -91,6 +91,54 @@ export function getMessages(sessionId: number): Message[] {
     .map(toMessage)
 }
 
+/**
+ * The most recent `limit` messages, oldest first.
+ *
+ * A long-running module can accumulate thousands of turns. Loading and
+ * rendering all of them on open costs memory and makes the transcript janky
+ * for no benefit — the learner is looking at the bottom.
+ */
+export function getRecentMessages(sessionId: number, limit: number): Message[] {
+  return getDatabase()
+    .prepare<[number, number], MessageRow>(
+      'SELECT * FROM (SELECT * FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT ?) ORDER BY id'
+    )
+    .all(sessionId, limit)
+    .map(toMessage)
+}
+
+/** The page of messages immediately before `beforeId`, oldest first. */
+export function getMessagesBefore(
+  sessionId: number,
+  beforeId: number,
+  limit: number
+): Message[] {
+  return getDatabase()
+    .prepare<[number, number, number], MessageRow>(
+      'SELECT * FROM (SELECT * FROM messages WHERE session_id = ? AND id < ? ORDER BY id DESC LIMIT ?) ORDER BY id'
+    )
+    .all(sessionId, beforeId, limit)
+    .map(toMessage)
+}
+
+export function countMessages(sessionId: number): number {
+  return (
+    getDatabase()
+      .prepare<[number], { n: number }>(
+        'SELECT COUNT(*) AS n FROM messages WHERE session_id = ?'
+      )
+      .get(sessionId)?.n ?? 0
+  )
+}
+
+/** Recent turns as plain text, for prompts that only need the tail. */
+export function recentTranscriptText(sessionId: number, limit: number): string {
+  return getRecentMessages(sessionId, limit)
+    .filter((m) => m.role !== 'tool')
+    .map((m) => `${m.role === 'user' ? 'Learner' : 'Tutor'}: ${m.content}`)
+    .join('\n\n')
+}
+
 /** Messages not yet folded into the running summary. */
 export function getUnfoldedMessages(sessionId: number, foldedThroughId: number): Message[] {
   return getDatabase()

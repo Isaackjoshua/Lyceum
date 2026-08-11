@@ -115,12 +115,17 @@ export function dashboardStats(now = Date.now()): DashboardStats {
   const objectivesTotal = mastery.reduce((n, m) => n + m.objectivesTotal, 0)
 
   // --- activity days ------------------------------------------------------
+  // Bounded: `events` grows without limit over a learner's lifetime, and a
+  // streak only ever needs a contiguous run ending today. Two years is far
+  // more than any streak this will ever display.
+  const STREAK_WINDOW_DAYS = 730
   const eventDays = new Set(
     db
-      .prepare<[], { ts: number }>(
-        "SELECT ts FROM events WHERE type IN ('session_start','review','quiz')"
+      .prepare<[number], { ts: number }>(
+        `SELECT ts FROM events
+         WHERE type IN ('session_start','review','quiz') AND ts >= ?`
       )
-      .all()
+      .all(now - STREAK_WINDOW_DAYS * DAY_MS)
       .map((r) => dayKey(r.ts))
   )
 
@@ -142,30 +147,54 @@ export function dashboardStats(now = Date.now()): DashboardStats {
     db.prepare<[], { n: number }>('SELECT COUNT(*) AS n FROM notes').get()?.n ?? 0
 
   // --- weak areas ---------------------------------------------------------
+  // Three grouped queries rather than three per module. The dashboard reads
+  // every module in every active curriculum, so this was the worst N+1 here.
+  const attemptCounts = new Map<number, number>(
+    db
+      .prepare<[], { module_id: number; n: number }>(
+        `SELECT q.module_id, COUNT(*) AS n
+         FROM quiz_attempts a JOIN quizzes q ON q.id = a.quiz_id
+         GROUP BY q.module_id`
+      )
+      .all()
+      .map((r) => [r.module_id, r.n])
+  )
+
+  const cardCounts = new Map<number, number>(
+    db
+      .prepare<[], { module_id: number; n: number }>(
+        `SELECT module_id, COUNT(*) AS n FROM flashcards
+         WHERE suspended = 0 AND module_id IS NOT NULL GROUP BY module_id`
+      )
+      .all()
+      .map((r) => [r.module_id, r.n])
+  )
+
+  const lapsingCounts = new Map<number, number>(
+    db
+      .prepare<[], { module_id: number; n: number }>(
+        `SELECT module_id, COUNT(*) AS n FROM flashcards
+         WHERE suspended = 0 AND module_id IS NOT NULL
+           AND COALESCE(json_extract(fsrs_json, '$.lapses'), 0) >= 3
+         GROUP BY module_id`
+      )
+      .all()
+      .map((r) => [r.module_id, r.n])
+  )
+
   const weakAreas: WeakArea[] = []
 
   for (const m of mastery) {
-    const attempted = db
-      .prepare<[number], { n: number }>(
-        `SELECT COUNT(*) AS n FROM quiz_attempts a
-         JOIN quizzes q ON q.id = a.quiz_id WHERE q.module_id = ?`
-      )
-      .get(m.moduleId)
-
-    const cardCount = db
-      .prepare<[number], { n: number }>(
-        'SELECT COUNT(*) AS n FROM flashcards WHERE module_id = ? AND suspended = 0'
-      )
-      .get(m.moduleId)
+    const attempted = attemptCounts.get(m.moduleId) ?? 0
+    const cards = cardCounts.get(m.moduleId) ?? 0
 
     // Drive this off evidence, not module status: a module can carry quiz
     // attempts and cards while its status lags behind. Conversely, a module
     // with no evidence at all is not "weak" — it is simply untested, and
     // telling someone to revisit something they never started is noise.
-    const hasEvidence = (attempted?.n ?? 0) > 0 || (cardCount?.n ?? 0) > 0
-    if (!hasEvidence) continue
+    if (attempted === 0 && cards === 0) continue
 
-    if ((attempted?.n ?? 0) > 0 && m.mastery < 0.7) {
+    if (attempted > 0 && m.mastery < 0.7) {
       weakAreas.push({
         moduleId: m.moduleId,
         moduleTitle: m.moduleTitle,
@@ -176,20 +205,13 @@ export function dashboardStats(now = Date.now()): DashboardStats {
       continue
     }
 
-    const lapsing = db
-      .prepare<[number], { n: number }>(
-        `SELECT COUNT(*) AS n FROM flashcards
-         WHERE module_id = ? AND suspended = 0
-           AND COALESCE(json_extract(fsrs_json, '$.lapses'), 0) >= 3`
-      )
-      .get(m.moduleId)
-
-    if ((lapsing?.n ?? 0) > 0) {
+    const lapsing = lapsingCounts.get(m.moduleId) ?? 0
+    if (lapsing > 0) {
       weakAreas.push({
         moduleId: m.moduleId,
         moduleTitle: m.moduleTitle,
         curriculumTitle: m.curriculumTitle,
-        reason: `${lapsing!.n} card${lapsing!.n === 1 ? '' : 's'} you keep forgetting`,
+        reason: `${lapsing} card${lapsing === 1 ? '' : 's'} you keep forgetting`,
         mastery: m.mastery
       })
     }

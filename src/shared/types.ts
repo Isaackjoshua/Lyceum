@@ -331,7 +331,10 @@ export interface SessionDetail {
   session: Session
   module: Module & { objectives: Objective[] }
   curriculum: Curriculum
+  /** The most recent page of the transcript, oldest first. */
   messages: Message[]
+  /** Total turns in the session, including those not loaded. */
+  totalMessages: number
 }
 
 export interface SendMessageArgs {
@@ -547,6 +550,7 @@ export const IPC = {
   sessionStart: 'session:start',
   sessionGet: 'session:get',
   sessionSend: 'session:send',
+  sessionEarlier: 'session:earlier',
   sessionCancel: 'session:cancel',
 
   notesCreate: 'notes:create',
@@ -653,6 +657,8 @@ export interface LyceumApi {
     start: (moduleId: number) => Promise<IpcResult<SessionDetail>>
     get: (sessionId: number) => Promise<IpcResult<SessionDetail>>
     send: (args: SendMessageArgs) => Promise<IpcResult<null>>
+    /** The page of turns immediately before `beforeId`, oldest first. */
+    earlier: (sessionId: number, beforeId: number) => Promise<IpcResult<Message[]>>
     cancel: (requestId: string) => Promise<IpcResult<null>>
     /** Subscribes to streamed turn events. Returns an unsubscribe function. */
     onEvent: (listener: (event: TurnEvent) => void) => () => void

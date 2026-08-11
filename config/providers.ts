@@ -35,6 +35,13 @@ export interface ProviderInfo {
   consoleUrl: string | null
   /** Model ids can be typed freely (aggregators, local runtimes). */
   allowsCustomModels: boolean
+  /**
+   * OpenAI renamed `max_tokens` to `max_completion_tokens` and rejects the old
+   * name on its newer models. Almost every other OpenAI-compatible server —
+   * Ollama, LM Studio, Groq, Together, Moonshot — implements only `max_tokens`
+   * and silently ignores the new name, which would uncap generation.
+   */
+  usesMaxCompletionTokens: boolean
   blurb: string
 }
 
@@ -49,6 +56,7 @@ export const PROVIDERS: Record<string, ProviderInfo> = {
     keyPrefix: 'sk-ant-',
     consoleUrl: 'https://console.anthropic.com',
     allowsCustomModels: false,
+    usesMaxCompletionTokens: false,
     blurb: 'Claude models. The strongest tutoring quality in Lyceum today.'
   },
   openai: {
@@ -61,6 +69,7 @@ export const PROVIDERS: Record<string, ProviderInfo> = {
     keyPrefix: 'sk-',
     consoleUrl: 'https://platform.openai.com/api-keys',
     allowsCustomModels: true,
+    usesMaxCompletionTokens: true,
     blurb: 'GPT models via the OpenAI API.'
   },
   moonshot: {
@@ -74,6 +83,7 @@ export const PROVIDERS: Record<string, ProviderInfo> = {
     keyPrefix: 'sk-',
     consoleUrl: 'https://platform.moonshot.ai',
     allowsCustomModels: true,
+    usesMaxCompletionTokens: false,
     blurb:
       'Kimi models, OpenAI-compatible. Model ids change often — check their docs and type the current one.'
   },
@@ -87,6 +97,7 @@ export const PROVIDERS: Record<string, ProviderInfo> = {
     keyPrefix: 'sk-or-',
     consoleUrl: 'https://openrouter.ai/keys',
     allowsCustomModels: true,
+    usesMaxCompletionTokens: false,
     blurb:
       'One key, hundreds of models including most open-weight ones. Use the full id, e.g. moonshotai/kimi-k2.'
   },
@@ -100,6 +111,7 @@ export const PROVIDERS: Record<string, ProviderInfo> = {
     keyPrefix: 'gsk_',
     consoleUrl: 'https://console.groq.com/keys',
     allowsCustomModels: true,
+    usesMaxCompletionTokens: false,
     blurb: 'Open-weight models at very high speed.'
   },
   together: {
@@ -112,6 +124,7 @@ export const PROVIDERS: Record<string, ProviderInfo> = {
     keyPrefix: null,
     consoleUrl: 'https://api.together.ai/settings/api-keys',
     allowsCustomModels: true,
+    usesMaxCompletionTokens: false,
     blurb: 'Hosted open-weight models.'
   },
   ollama: {
@@ -124,6 +137,7 @@ export const PROVIDERS: Record<string, ProviderInfo> = {
     keyPrefix: null,
     consoleUrl: 'https://ollama.com',
     allowsCustomModels: true,
+    usesMaxCompletionTokens: false,
     blurb:
       'Models running on this machine. No key, no cost, works offline — but tool support varies by model.'
   },
@@ -137,6 +151,7 @@ export const PROVIDERS: Record<string, ProviderInfo> = {
     keyPrefix: null,
     consoleUrl: null,
     allowsCustomModels: true,
+    usesMaxCompletionTokens: false,
     blurb: 'Any other endpoint speaking the OpenAI chat-completions format.'
   }
 }
