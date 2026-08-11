@@ -132,6 +132,50 @@ npm run typecheck   # strict TS across both tsconfigs
 npm run dist        # package a distributable via electron-builder
 ```
 
+## Building an installable version
+
+```bash
+npm run dist:linux   # AppImage + .deb  → release/
+npm run dist:win     # NSIS installer + portable .exe
+npm run dist:mac     # .dmg + .zip
+npm run dist:dir     # unpacked directory only, for a quick check
+```
+
+Artifacts land in `release/`. electron-builder can only produce a macOS build on
+macOS; Windows builds cross-compile from Linux but are unsigned, so SmartScreen
+will warn on first run.
+
+### Installing on Linux
+
+The `.deb` is the path that needs no fiddling:
+
+```bash
+sudo apt install ./release/Lyceum-0.1.0-linux-amd64.deb
+lyceum
+```
+
+Its install script deals with the Chromium sandbox for you. That is worth a word
+of explanation, because it is the one thing most likely to go wrong.
+
+Chromium isolates its renderer processes either with an unprivileged user
+namespace or with a setuid helper, and it refuses to start with neither — a hard
+abort, not a quiet downgrade. Ubuntu 24.04 and later set
+`kernel.apparmor_restrict_unprivileged_userns=1`, which denies user namespaces to
+any binary without an AppArmor profile granting them. So on a current Ubuntu the
+install script writes `/etc/apparmor.d/lyceum`, a four-line profile granting that
+one permission to that one binary, and the namespace sandbox works normally.
+Where AppArmor is older or absent, it falls back to the setuid helper instead.
+Removing the package removes the profile.
+
+The **AppImage** has no install step, so neither fix can be applied for you.
+On Ubuntu 24.04+ you will need to either install the same profile by hand
+(pointing the path at wherever you keep the AppImage) or run it with
+`--no-sandbox`, which is a real reduction in isolation and not recommended for
+everyday use. The AppImage also needs FUSE 2 — `sudo apt install libfuse2t64` —
+or it can be run as `./Lyceum-*.AppImage --appimage-extract-and-run`.
+
+If you are on a distribution without these restrictions, both artifacts run as-is.
+
 ### Linux: one-time sandbox setup
 
 Chromium's setuid sandbox helper must be owned by root. If the app aborts with
