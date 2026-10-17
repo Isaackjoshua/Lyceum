@@ -237,7 +237,6 @@ design.
   over IPC, and never written in plaintext
 - External links open in the system browser; in-app navigation off-origin is
   blocked; all permission requests are denied
-  q
   
 
 ## License
